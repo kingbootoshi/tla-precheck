@@ -6,7 +6,11 @@
   "scripts": {
     "build": "bun ./node_modules/typescript/lib/tsc.js -p tsconfig.json",
     "typecheck": "bun ./node_modules/typescript/lib/tsc.js --noEmit",
-    "lint": "bun ./node_modules/typescript/lib/tsc.js --noEmit && bun src/cli/machine.ts lint src/examples/agentRuns.machine.ts --tsconfig tsconfig.json",
+    "ci:local": "bash ./scripts/ci.sh pr",
+    "ci:pr": "bash ./scripts/ci.sh pr",
+    "ci:nightly": "bash ./scripts/ci.sh nightly",
+    "lint": "bun run lint:all",
+    "lint:all": "bun ./node_modules/typescript/lib/tsc.js --noEmit && bun src/cli/machine.ts lint-all src --tsconfig tsconfig.json",
     "test": "bun test src",
     "test:db": "bun test src/db/postgres.integration.test.ts",
     "test:fuzz": "RUN_FUZZ_TESTS=1 bun test src/fuzz/differential.test.ts",
@@ -19,7 +23,8 @@
     "verify:all": "bun dist/cli/machine.js verify-all dist",
     "verify:all:full": "bun dist/cli/machine.js verify-all dist --all-tiers",
     "verify:db": "bun dist/cli/machine.js verify-db-all dist",
-    "verify:db:all": "bun dist/cli/machine.js verify-db-all dist"
+    "verify:db:all": "bun dist/cli/machine.js verify-db-all dist",
+    "agent-build": "bun dist/cli/machine.js agent-build dist/examples/agentRuns.machine.js"
   },
   "devDependencies": {
     "typescript": "^5.8.3",

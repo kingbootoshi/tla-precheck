@@ -39,49 +39,7 @@ jobs:
           java-version: '17'
 
       - run: bun install
-      - run: bun run lint
-      - run: bun run test
-      - run: bun run build
-      - run: bun run generate:db
-
-      - name: Apply generated storage contract
-        run: |
-          bun -e '
-            const db = new Bun.SQL(process.env.DATABASE_URL);
-            await db.unsafe(`
-              DROP TABLE IF EXISTS public.agent_runs CASCADE;
-              CREATE TABLE public.agent_runs (
-                id BIGSERIAL PRIMARY KEY,
-                owner TEXT,
-                status TEXT NOT NULL
-              );
-            `);
-            await db.close();
-            const [{ default: machine }, { applyPostgresStorageContract }] = await Promise.all([
-              import("./dist/examples/agentRuns.machine.js"),
-              import("./dist/db/postgres.js")
-            ]);
-            await applyPostgresStorageContract(machine, process.env.DATABASE_URL);
-          '
-
-      - run: bun run verify:db
-      - run: bun run test:db
-
-      - name: Download TLC
-        run: |
-          mkdir -p .cache/tla
-          curl -L https://github.com/tlaplus/tlaplus/releases/download/${TLA2TOOLS_VERSION}/tla2tools.jar -o .cache/tla/tla2tools.jar
-          echo "${TLA2TOOLS_SHA256}  .cache/tla/tla2tools.jar" | shasum -a 256 -c -
-
-      - name: Verify all machine tiers
-        env:
-          TLA2TOOLS_JAR: ${{ github.workspace }}/.cache/tla/tla2tools.jar
-        run: bun run verify
-
-      - name: Run compiler fuzz smoke suite
-        env:
-          TLA2TOOLS_JAR: ${{ github.workspace }}/.cache/tla/tla2tools.jar
-        run: bun run test:fuzz:smoke
+      - run: bun run ci:pr
 
       - name: Upload artifacts
         if: always()
