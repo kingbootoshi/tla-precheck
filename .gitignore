@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.generated-machines/
 .generated-machines/**/pr/.tlc-meta/
 .generated-machines/**/*.bin
 .generated-machines/fuzz/
