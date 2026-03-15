@@ -55,6 +55,15 @@ Next ==
   \/ annoy
   \/ calmDown
 
+EquivalenceNext ==
+  \/ wakeUp
+  \/ fallAsleep
+  \/ serveFood
+  \/ finishEating
+  \/ annoy
+  \/ calmDown
+
 Spec == Init /\ [][Next]_vars
+EquivalenceSpec == Init /\ [][EquivalenceNext]_vars
 
 ====

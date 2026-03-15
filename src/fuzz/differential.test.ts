@@ -308,7 +308,11 @@ const verifyMachine = async (machine: MachineDef): Promise<void> => {
   await mkdir(metadir, { recursive: true });
   await writeFile(
     equivalenceCfgPath,
-    generateCfg(resolvedMachine, { includeSymmetry: false }),
+    generateCfg(resolvedMachine, {
+      includeSymmetry: false,
+      specification: "EquivalenceSpec",
+      stringifyModelValues: true
+    }),
     "utf8"
   );
 
@@ -342,7 +346,10 @@ const verifyMachine = async (machine: MachineDef): Promise<void> => {
   }
 
   const dotSource = await readFile(graphPath, "utf8");
-  const tlcGraph = parseTlcDot(resolvedMachine, dotSource);
+  const actionLabels = JSON.parse(
+    await readFile(generated.actionLabelsPath, "utf8")
+  ) as Record<string, string>;
+  const tlcGraph = parseTlcDot(resolvedMachine, dotSource, actionLabels);
   const certificate = compareGraphs(resolvedMachine, tsGraph, tlcGraph, tlcOutput);
 
   assert.equal(

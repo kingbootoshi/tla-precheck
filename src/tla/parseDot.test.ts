@@ -39,4 +39,19 @@ describe("TLC DOT parsing", () => {
 
     assert.equal(graph.initial.length, 1);
   });
+
+  test("maps generated wrapper action names back to canonical bindings", () => {
+    const machine = resolveMachine(agentRunsMachine, "pr");
+    const source = String.raw`strict digraph DiskGraph {
+1 -> 2 [label="Action_create_1",color="black",fontcolor="black"];
+1 [label="/\\ owner = [r1 |-> \"__NULL__\", r2 |-> \"__NULL__\", r3 |-> \"__NULL__\"]\n/\\ status = [r1 |-> \"idle\", r2 |-> \"idle\", r3 |-> \"idle\"]",style = filled];
+2 [label="/\\ owner = [r1 |-> u1, r2 |-> \"__NULL__\", r3 |-> \"__NULL__\"]\n/\\ status = [r1 |-> \"queued\", r2 |-> \"idle\", r3 |-> \"idle\"]"];
+}`;
+
+    const graph = parseTlcDot(machine, source, {
+      Action_create_1: 'create(u1,"r1")'
+    });
+
+    assert.equal(graph.edges[0]?.action, 'create(u1,"r1")');
+  });
 });

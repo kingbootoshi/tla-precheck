@@ -1,20 +1,19 @@
 strict digraph DiskGraph {
-node [shape=box,style=rounded]
 nodesep=0.35;
 subgraph cluster_graph {
 color="white";
-4258905718676165809 [label="/\\ mode = \"sleeping\"\n/\\ temper = \"calm\"",style = filled]
-4258905718676165809 -> 7428221727139502829 [label="wakeUp",color="black",fontcolor="black"];
-7428221727139502829 [label="/\\ mode = \"awake\"\n/\\ temper = \"calm\"",tooltip="/\\ mode = \"awake\"\n/\\ temper = \"calm\""];
-7428221727139502829 -> 4258905718676165809 [label="fallAsleep",color="black",fontcolor="black"];
-7428221727139502829 -> -8633551329658467904 [label="serveFood",color="black",fontcolor="black"];
--8633551329658467904 [label="/\\ mode = \"eating\"\n/\\ temper = \"calm\"",tooltip="/\\ mode = \"eating\"\n/\\ temper = \"calm\""];
-7428221727139502829 -> -6945379814643979899 [label="annoy",color="black",fontcolor="black"];
--6945379814643979899 [label="/\\ mode = \"awake\"\n/\\ temper = \"angry\"",tooltip="/\\ mode = \"awake\"\n/\\ temper = \"angry\""];
--8633551329658467904 -> 7428221727139502829 [label="finishEating",color="black",fontcolor="black"];
--6945379814643979899 -> 7428221727139502829 [label="calmDown",color="black",fontcolor="black"];
-{rank = same; 4258905718676165809;}
-{rank = same; 7428221727139502829;}
-{rank = same; -6945379814643979899;-8633551329658467904;}
+542279054448475688 [label="/\\ mode = \"sleeping\"\n/\\ temper = \"calm\"",style = filled]
+542279054448475688 -> 7231163500475248547 [label="wakeUp",color="black",fontcolor="black"];
+7231163500475248547 [label="/\\ mode = \"awake\"\n/\\ temper = \"calm\""];
+7231163500475248547 -> 542279054448475688 [label="fallAsleep",color="black",fontcolor="black"];
+7231163500475248547 -> -2560078536170404903 [label="serveFood",color="black",fontcolor="black"];
+-2560078536170404903 [label="/\\ mode = \"eating\"\n/\\ temper = \"calm\""];
+7231163500475248547 -> 1375773954887937871 [label="annoy",color="black",fontcolor="black"];
+1375773954887937871 [label="/\\ mode = \"awake\"\n/\\ temper = \"angry\""];
+-2560078536170404903 -> 7231163500475248547 [label="finishEating",color="black",fontcolor="black"];
+1375773954887937871 -> 7231163500475248547 [label="calmDown",color="black",fontcolor="black"];
+{rank = same; 542279054448475688;}
+{rank = same; 7231163500475248547;}
+{rank = same; 1375773954887937871;-2560078536170404903;}
 }
 }

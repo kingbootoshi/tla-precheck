@@ -27,6 +27,12 @@ describe("TLA generation", () => {
 
     assert.match(tla, /CONSTANTS Users, Runs/);
     assert.match(tla, /Symmetry == Permutations\(Users\)/);
+    assert.match(tla, /^Action_create_1 ==$/m);
+    assert.match(tla, /  \/\\ \(status\["r1"\] = "idle"\)/);
+    assert.match(tla, /  \/\\ owner' = \[owner EXCEPT !\["r1"\] = "u1"\]/);
+    assert.match(tla, /EquivalenceNext ==[\s\S]*\\\/ Action_create_1/);
+    assert.match(tla, /Spec == Init \/\\ \[\]\[Next\]_vars/);
+    assert.match(tla, /EquivalenceSpec == Init \/\\ \[\]\[EquivalenceNext\]_vars/);
     assert.doesNotMatch(tla, /Users == \{/);
     assert.doesNotMatch(tla, /Runs == \{/);
   });

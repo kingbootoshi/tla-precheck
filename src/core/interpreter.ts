@@ -7,6 +7,7 @@ import type {
   Update,
   VariableDef
 } from "./dsl.js";
+import { formatActionLabel } from "./actionLabels.js";
 import { deepClone, deepEqual, stableStringify } from "./stable.js";
 
 export type MachineState = Record<string, JsonValue>;
@@ -74,23 +75,6 @@ const cartesianProduct = (entries: readonly (readonly [string, readonly string[]
 const hasOwn = (record: Record<string, Primitive>, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(record, key);
 
-const renderBindingValue = (
-  machine: FiniteMachineDef,
-  domainName: string,
-  value: Primitive
-): string => {
-  const domain = machine.resolvedTier.domains[domainName];
-  if (domain === undefined) {
-    throw new Error(`Unknown domain ${domainName}`);
-  }
-
-  if (typeof value !== "string") {
-    throw new Error(`Action parameter ${domainName} must resolve to a string value`);
-  }
-
-  return domain.kind === "modelValues" ? value : JSON.stringify(value);
-};
-
 const envMatchesAction = (
   machine: FiniteMachineDef,
   action: ActionDef,
@@ -114,27 +98,6 @@ const envMatchesAction = (
     const value = env[name];
     return typeof value === "string" && domain.includes(value);
   });
-};
-
-const formatActionLabel = (
-  machine: FiniteMachineDef,
-  actionName: string,
-  env: EvalEnv
-): string => {
-  const action = machine.actions[actionName];
-  if (action === undefined) {
-    throw new Error(`Unknown action ${actionName}`);
-  }
-
-  const paramNames = Object.keys(action.params);
-  if (paramNames.length === 0) {
-    return actionName;
-  }
-
-  const renderedBindings = paramNames.map((name) =>
-    renderBindingValue(machine, action.params[name], env[name])
-  );
-  return `${actionName}(${renderedBindings.join(",")})`;
 };
 
 export const canonicalizeState = (machine: FiniteMachineDef, state: MachineState): string => {

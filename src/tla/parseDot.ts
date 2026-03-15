@@ -14,7 +14,13 @@ const unescapeDotLabel = (value: string): string =>
     .replace(/\\"/g, '"')
     .replace(/\\\\/g, "\\");
 
-const canonicalizeActionLabel = (value: string): string => unescapeDotLabel(value).trim();
+const canonicalizeActionLabel = (
+  value: string,
+  actionLabels: Readonly<Record<string, string>>
+): string => {
+  const canonical = unescapeDotLabel(value).trim();
+  return actionLabels[canonical] ?? canonical;
+};
 const isInitialNodeSuffix = (value: string): boolean => /style\s*=\s*"?filled"?/.test(value);
 
 interface Token {
@@ -231,7 +237,11 @@ const parseNodeLabel = (machine: ResolvedMachineDef, rawLabel: string): JsonValu
   );
 };
 
-export const parseTlcDot = (machine: ResolvedMachineDef, source: string): ParsedTlcGraph => {
+export const parseTlcDot = (
+  machine: ResolvedMachineDef,
+  source: string,
+  actionLabels: Readonly<Record<string, string>> = {}
+): ParsedTlcGraph => {
   const nodePattern = /^\s*([\-\d]+) \[label="((?:\\.|[^"\\])*)"([^\]]*)\]/;
   const edgePattern = /^\s*([\-\d]+) -> ([\-\d]+) \[label="((?:\\.|[^"\\])*)"/;
 
@@ -261,7 +271,7 @@ export const parseTlcDot = (machine: ResolvedMachineDef, source: string): Parsed
       rawEdges.push({
         fromId,
         toId,
-        action: canonicalizeActionLabel(unescapeDotLabel(rawAction).trim())
+        action: canonicalizeActionLabel(rawAction, actionLabels)
       });
     }
   }

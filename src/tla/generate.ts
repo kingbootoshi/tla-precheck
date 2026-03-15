@@ -10,6 +10,7 @@ import type {
   ValueType,
   VariableDef
 } from "../core/dsl.js";
+import { formatActionLabel } from "../core/actionLabels.js";
 import { NULL_VALUE } from "../core/proof.js";
 
 const NULL_SYMBOL = "Null";
@@ -51,6 +52,13 @@ const tlaLiteral = (value: JsonValue): string => {
     .map(([key, nested]) => `${key} |-> ${tlaLiteral(nested)}`)
     .join(", ")}]`;
 };
+
+const proofDomainValueToTla = (
+  domain: ProofDomainDef,
+  value: string,
+  options?: { stringifyModelValues?: boolean }
+): string =>
+  domain.kind === "modelValues" && options?.stringifyModelValues !== true ? value : tlaString(value);
 
 const valueTypeToTla = (valueType: ValueType): string => {
   switch (valueType.kind) {
@@ -146,6 +154,164 @@ const unchangedClause = (machine: ResolvedMachineDef, updates: readonly Update[]
   return `  /\\ UNCHANGED <<${unchanged.join(", ")}>>`;
 };
 
+interface ActionInstance {
+  operatorName: string;
+  actionLabel: string;
+  binding: Record<string, string>;
+}
+
+const cartesianBindings = (
+  entries: readonly (readonly [string, readonly string[]])[]
+): Record<string, string>[] => {
+  if (entries.length === 0) {
+    return [{}];
+  }
+
+  const [[headName, headDomain], ...tail] = entries;
+  const tailBindings = cartesianBindings(tail);
+  const out: Record<string, string>[] = [];
+
+  for (const value of headDomain) {
+    for (const binding of tailBindings) {
+      out.push({ ...binding, [headName]: value });
+    }
+  }
+
+  return out;
+};
+
+const actionInstances = (machine: ResolvedMachineDef, actionName: string): readonly ActionInstance[] => {
+  const action = machine.actions[actionName];
+  const paramNames = Object.keys(action.params);
+  if (paramNames.length === 0) {
+    return [];
+  }
+
+  const bindings = cartesianBindings(
+    paramNames.map((paramName) => {
+      const domainName = action.params[paramName];
+      const domain = machine.domains[domainName];
+      if (domain === undefined) {
+        throw new Error(`Unknown domain ${domainName}`);
+      }
+      return [paramName, domain] as const;
+    })
+  );
+
+  return bindings.map((binding, index) => {
+    return {
+      operatorName: `Action_${actionName}_${index + 1}`,
+      actionLabel: formatActionLabel(machine, actionName, binding),
+      binding
+    };
+  });
+};
+
+const withoutKey = (record: Record<string, string>, key: string): Record<string, string> => {
+  const out = { ...record };
+  delete out[key];
+  return out;
+};
+
+const substituteExpr = (expr: Expr, binding: Record<string, string>): Expr => {
+  switch (expr.kind) {
+    case "lit":
+    case "var":
+      return expr;
+    case "param":
+      return Object.prototype.hasOwnProperty.call(binding, expr.name) ? { kind: "lit", value: binding[expr.name] } : expr;
+    case "index":
+      return {
+        kind: "index",
+        target: substituteExpr(expr.target, binding),
+        key: substituteExpr(expr.key, binding)
+      };
+    case "set":
+      return { kind: "set", values: expr.values.map((value) => substituteExpr(value, binding)) };
+    case "and":
+      return { kind: "and", values: expr.values.map((value) => substituteExpr(value, binding)) };
+    case "or":
+      return { kind: "or", values: expr.values.map((value) => substituteExpr(value, binding)) };
+    case "not":
+      return { kind: "not", value: substituteExpr(expr.value, binding) };
+    case "eq":
+      return {
+        kind: "eq",
+        left: substituteExpr(expr.left, binding),
+        right: substituteExpr(expr.right, binding)
+      };
+    case "lte":
+      return {
+        kind: "lte",
+        left: substituteExpr(expr.left, binding),
+        right: substituteExpr(expr.right, binding)
+      };
+    case "in":
+      return {
+        kind: "in",
+        elem: substituteExpr(expr.elem, binding),
+        set: substituteExpr(expr.set, binding)
+      };
+    case "count":
+      return {
+        kind: "count",
+        domain: expr.domain,
+        binder: expr.binder,
+        where: substituteExpr(expr.where, withoutKey(binding, expr.binder))
+      };
+    case "forall":
+      return {
+        kind: "forall",
+        domain: expr.domain,
+        binder: expr.binder,
+        where: substituteExpr(expr.where, withoutKey(binding, expr.binder))
+      };
+  }
+
+  return assertNever(expr);
+};
+
+const substituteUpdate = (update: Update, binding: Record<string, string>): Update => {
+  switch (update.kind) {
+    case "setVar":
+      return {
+        kind: "setVar",
+        name: update.name,
+        value: substituteExpr(update.value, binding)
+      };
+    case "setMap":
+      return {
+        kind: "setMap",
+        name: update.name,
+        key: substituteExpr(update.key, binding),
+        value: substituteExpr(update.value, binding)
+      };
+  }
+
+  return assertNever(update);
+};
+
+const actionInstanceToTla = (
+  machine: ResolvedMachineDef,
+  actionName: string,
+  instance: ActionInstance
+): string => {
+  const action = machine.actions[actionName];
+  const lines = [
+    `${instance.operatorName} ==`,
+    `  /\\ ${exprToTla(substituteExpr(action.guard, instance.binding))}`
+  ];
+  const updates = action.updates.map((update) => substituteUpdate(update, instance.binding));
+  lines.push(...updates.map((update) => updateToTla(update)));
+
+  const unchanged = unchangedClause(machine, action.updates);
+  if (unchanged !== null) {
+    lines.push(unchanged);
+  }
+
+  return lines.join("\n");
+};
+
 const actionToTla = (machine: ResolvedMachineDef, name: string): string => {
   const action = machine.actions[name];
   const params = Object.keys(action.params);
@@ -171,8 +337,23 @@ const nextToTla = (machine: ResolvedMachineDef): string =>
       if (params.length === 0) {
         return `  \\/ ${name}`;
       }
-      const quantifiers = params.map((paramName) => `${paramName} \\in ${action.params[paramName]}`).join(", ");
+      const quantifiers = params
+        .map((paramName) => `${paramName} \\in ${action.params[paramName]}`)
+        .join(", ");
       return `  \\/ \\E ${quantifiers} : ${name}(${params.join(", ")})`;
+    })
+    .join("\n");
+
+const equivalenceNextToTla = (machine: ResolvedMachineDef): string =>
+  Object.entries(machine.actions)
+    .map(([name, action]) => {
+      const params = Object.keys(action.params);
+      if (params.length === 0) {
+        return `  \\/ ${name}`;
+      }
+      return actionInstances(machine, name)
+        .map((instance) => `  \\/ ${instance.operatorName}`)
+        .join("\n");
     })
     .join("\n");
 
@@ -196,19 +377,30 @@ const renderSymmetry = (machine: ResolvedMachineDef): string[] => {
   return [`Symmetry ==`, `  {${combined} : ${binders}}`];
 };
 
-const cfgValue = (domain: ProofDomainDef, value: string): string =>
-  domain.kind === "modelValues" ? value : tlaString(value);
+const cfgValue = (
+  domain: ProofDomainDef,
+  value: string,
+  options?: { stringifyModelValues?: boolean }
+): string => proofDomainValueToTla(domain, value, options);
 
-const renderCfgDomains = (machine: ResolvedMachineDef): string[] =>
+const renderCfgDomains = (
+  machine: ResolvedMachineDef,
+  options?: { stringifyModelValues?: boolean }
+): string[] =>
   Object.entries(machine.domains).map(([name, values]) => {
     const domain = machine.resolvedTier.domains[name];
-    return `  ${name} = {${values.map((value) => cfgValue(domain, value)).join(", ")}}`;
+    return `  ${name} = {${values
+      .map((value) => cfgValue(domain, value, options))
+      .join(", ")}}`;
   });
 
 export const generateTlaModule = (machine: ResolvedMachineDef): string => {
   const variables = Object.keys(machine.variables);
   const constantNames = Object.keys(machine.domains);
   const actionBodies = Object.keys(machine.actions).map((name) => actionToTla(machine, name));
+  const actionInstanceBodies = Object.keys(machine.actions).flatMap((name) =>
+    actionInstances(machine, name).map((instance) => actionInstanceToTla(machine, name, instance))
+  );
   const invariantBodies = Object.entries(machine.invariants).map(
     ([name, invariant]) => `${name} ==\n  ${exprToTla(invariant.formula)}`
   );
@@ -238,6 +430,8 @@ export const generateTlaModule = (machine: ResolvedMachineDef): string => {
     ...rawPropertyBodies,
     rawPropertyBodies.length === 0 ? null : "",
     ...actionBodies,
+    actionInstanceBodies.length === 0 ? null : "",
+    ...actionInstanceBodies,
     "",
     "Init ==",
     ...Object.entries(machine.variables).map(([name, variableDef]) => initForVariable(name, variableDef)),
@@ -245,7 +439,11 @@ export const generateTlaModule = (machine: ResolvedMachineDef): string => {
     "Next ==",
     nextToTla(machine),
     "",
+    "EquivalenceNext ==",
+    equivalenceNextToTla(machine),
+    "",
     "Spec == Init /\\ [][Next]_vars",
+    "EquivalenceSpec == Init /\\ [][EquivalenceNext]_vars",
     "",
     "===="
   ]
@@ -255,12 +453,14 @@ export const generateTlaModule = (machine: ResolvedMachineDef): string => {
 
 export const generateCfg = (
   machine: ResolvedMachineDef,
-  options?: { includeSymmetry?: boolean }
+  options?: { includeSymmetry?: boolean; specification?: string; stringifyModelValues?: boolean }
 ): string => {
   const includeSymmetry = options?.includeSymmetry ?? true;
   const invariantNames = ["TypeOK", ...machine.resolvedTier.invariants];
-  const domainLines = renderCfgDomains(machine);
-  const lines: string[] = ["SPECIFICATION Spec"];
+  const domainLines = renderCfgDomains(machine, {
+    stringifyModelValues: options?.stringifyModelValues
+  });
+  const lines: string[] = [`SPECIFICATION ${options?.specification ?? "Spec"}`];
 
   if (domainLines.length > 0) {
     lines.push("", "CONSTANTS", ...domainLines);
@@ -293,6 +493,7 @@ export interface GeneratedPaths {
   outputDir: string;
   tlaPath: string;
   cfgPath: string;
+  actionLabelsPath: string;
 }
 
 export const writeGeneratedMachine = async (
@@ -304,9 +505,16 @@ export const writeGeneratedMachine = async (
 
   const tlaPath = join(outputDir, `${machine.moduleName}.tla`);
   const cfgPath = join(outputDir, `${machine.moduleName}.cfg`);
+  const actionLabelsPath = join(outputDir, `${machine.moduleName}.action-labels.json`);
+  const actionLabels = Object.fromEntries(
+    Object.keys(machine.actions).flatMap((name) =>
+      actionInstances(machine, name).map((instance) => [instance.operatorName, instance.actionLabel] as const)
+    )
+  );
 
   await writeFile(tlaPath, generateTlaModule(machine), "utf8");
   await writeFile(cfgPath, generateCfg(machine), "utf8");
+  await writeFile(actionLabelsPath, JSON.stringify(actionLabels, null, 2), "utf8");
 
-  return { outputDir, tlaPath, cfgPath };
+  return { outputDir, tlaPath, cfgPath, actionLabelsPath };
 };
