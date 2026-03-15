@@ -3,7 +3,7 @@
   "machine": "AgentRuns",
   "database": "postgres",
   "verified": true,
-  "checkedAt": "2026-03-15T02:05:50.357Z",
+  "checkedAt": "2026-03-15T09:47:04.512Z",
   "constraints": [
     {
       "name": "agent_runs_one_active_per_user",
@@ -14,7 +14,10 @@
       "present": true,
       "valid": true,
       "hashMatched": true,
-      "columnsMatched": true
+      "columnsMatched": true,
+      "predicateMatched": true,
+      "flagsMatched": true,
+      "typeCoverageMatched": true
     },
     {
       "name": "agent_runs_active_requires_owner",
@@ -23,7 +26,10 @@
       "schema": "public",
       "present": true,
       "valid": true,
-      "hashMatched": true
+      "hashMatched": true,
+      "predicateMatched": true,
+      "flagsMatched": true,
+      "typeCoverageMatched": true
     }
   ]
 }

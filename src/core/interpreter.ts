@@ -219,19 +219,20 @@ export const buildInitialState = (machine: FiniteMachineDef): MachineState => {
 
 const applyUpdate = (
   machine: FiniteMachineDef,
-  state: MachineState,
+  sourceState: MachineState,
+  targetState: MachineState,
   env: EvalEnv,
   update: Update
 ): void => {
   switch (update.kind) {
     case "setVar":
-      state[update.name] = evaluateExpr(machine, state, env, update.value);
+      targetState[update.name] = evaluateExpr(machine, sourceState, env, update.value);
       break;
     case "setMap": {
-      const nextMap = deepClone(asRecord(state[update.name]));
-      const key = String(evaluateExpr(machine, state, env, update.key));
-      nextMap[key] = evaluateExpr(machine, state, env, update.value);
-      state[update.name] = nextMap;
+      const nextMap = deepClone(asRecord(sourceState[update.name]));
+      const key = String(evaluateExpr(machine, sourceState, env, update.key));
+      nextMap[key] = evaluateExpr(machine, sourceState, env, update.value);
+      targetState[update.name] = nextMap;
       break;
     }
   }
@@ -269,7 +270,7 @@ export const step = (
 
   const nextState = deepClone(state);
   for (const update of action.updates) {
-    applyUpdate(machine, nextState, env, update);
+    applyUpdate(machine, state, nextState, env, update);
   }
   return nextState;
 };

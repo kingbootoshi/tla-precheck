@@ -228,8 +228,30 @@ const parseNodeLabel = (machine: ResolvedMachineDef, rawLabel: string): JsonValu
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+  const assignments: string[] = [];
+  let current = "";
 
-  const parsed = Object.fromEntries(lines.map((line) => parseAssignmentLine(line)));
+  for (const line of lines) {
+    if (line.startsWith("/\\") || current.length === 0 || line.includes("=")) {
+      if (current.length > 0) {
+        assignments.push(current);
+      }
+      current = line;
+      continue;
+    }
+
+    if (current.length === 0) {
+      throw new Error(`Could not parse node label line without assignment prefix: ${line}`);
+    }
+
+    current = `${current} ${line}`;
+  }
+
+  if (current.length > 0) {
+    assignments.push(current);
+  }
+
+  const parsed = Object.fromEntries(assignments.map((line) => parseAssignmentLine(line)));
   return Object.fromEntries(
     Object.keys(machine.variables)
       .sort((left, right) => left.localeCompare(right))

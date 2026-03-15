@@ -2,7 +2,7 @@
   <img src="tla-precheck-banner.jpeg" alt="TLA PreCheck" width="100%" />
 </p>
 
-<h3 align="center">Your TLA+ spec and your TypeScript code drift apart.<br/>This kit makes that impossible.</h3>
+<h3 align="center">Your TLA+ spec and your TypeScript code drift apart.<br/>This kit gives you a bounded, CI-gated equivalence check instead of trust.</h3>
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> -
@@ -18,7 +18,7 @@
 
 You write a TLA+ spec. You write TypeScript. They start in sync. Then someone changes the code and forgets the spec. Or changes the spec and forgets the code. Now your "formally verified" system is a lie.
 
-**TLA PreCheck** eliminates drift by generating both the TLA+ spec and the runtime interpreter from a single TypeScript DSL. Then it *proves* they produce identical state graphs. Every CI run. Every commit.
+**TLA PreCheck** generates both the TLA+ spec and the runtime interpreter from a single TypeScript DSL. Then it checks that they produce identical reachable state graphs for chosen finite proof tiers. Every CI run. Every commit.
 
 If they diverge, your build fails. No drift. No lies.
 
@@ -49,11 +49,12 @@ bun run generate
 # Generate the Postgres storage contract
 bun run generate:db
 
-# Verify the live Postgres schema against the generated contract
+# Verify every machine with storage constraints against the live Postgres schema
 # (requires DATABASE_URL and a migrated schema)
 bun run verify:db
 
-# Verify the PR tier (requires Java 17+ and TLA2TOOLS_JAR)
+# Verify every discovered machine at its default proof tier
+# (requires Java 17+ and TLA2TOOLS_JAR)
 bun run verify
 ```
 
@@ -118,7 +119,7 @@ The required test stack is:
 - boundary tests that prove raw writes are rejected outside the generated adapter path
 - schema verification that proves the live database really has the required constraints
 
-This repo includes semantic unit tests, end-to-end model verification, raw-write boundary checks, schema verification, and a live Postgres race test. The next highest-value addition is randomized differential testing over many tiny bounded machines.
+This repo includes semantic unit tests, end-to-end model verification, raw-write boundary checks, schema verification, a live Postgres race test, and seeded compiler differential fuzzing over tiny bounded machines.
 
 There is now a dedicated compiler fuzz harness:
 - `bun run test:fuzz`
@@ -293,6 +294,9 @@ The storage contract is generated SQL with deterministic hash comments. `verify-
 - the object exists
 - it is valid
 - its hash comment matches the machine declaration
+- its indexed columns match
+- its live predicate semantics match the DSL predicate on witness rows
+- its index flags match the expected uniqueness semantics
 
 There is also a destructive integration test that proves the partial unique index behaves correctly under concurrent writes.
 
@@ -379,10 +383,14 @@ jobs:
       - run: bun run test:db
 
       - name: Download TLC
+        env:
+          TLA2TOOLS_VERSION: v1.8.0
+          TLA2TOOLS_SHA256: a89d5ef05d1abddab6acfda1dbace14e2e45e7960527ac186dd19c170a955080
         run: |
           mkdir -p .cache/tla
-          curl -L https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar \
+          curl -L https://github.com/tlaplus/tlaplus/releases/download/${TLA2TOOLS_VERSION}/tla2tools.jar \
             -o .cache/tla/tla2tools.jar
+          echo "${TLA2TOOLS_SHA256}  .cache/tla/tla2tools.jar" | shasum -a 256 -c -
 
       - name: Verify machines
         env:
@@ -413,7 +421,7 @@ src/
     parseDot.ts        # TLC DOT output parser
     compare.ts         # State graph equivalence check
   cli/
-    machine.ts         # CLI: estimate, generate, generate-db, verify, verify-db
+    machine.ts         # CLI: estimate, generate, generate-db, verify, verify-db, verify-all, verify-db-all
   lint/
     noRawMachineWrites.ts  # Static analysis for boundary violations
   examples/
@@ -432,10 +440,10 @@ If you follow these rules:
 6. The storage certificate says `verified: true`
 
 Then:
-- Every runtime machine step is a step of the verified TLA+ machine
-- Every safety invariant proved by TLC holds at runtime
-- Any semantic mismatch between the generator and interpreter is caught
-- Any missing or drifted storage constraint is caught before deploy
+- For each checked machine and finite proof tier, every runtime machine step is a step of the checked TLA+ machine
+- Any semantic mismatch between the generator and interpreter is caught for those checked tiers
+- Any missing or drifted storage constraint is caught before deploy for the declared storage contracts
+- Safety claims remain bounded by the checked proof model and the machine boundary
 
 ## What Is Not Guaranteed
 
@@ -444,7 +452,7 @@ Then:
 - Liveness properties (without matching runtime fairness assumptions)
 - Unbounded domains beyond the chosen proof model
 
-This is the strongest honest guarantee you can get in a TypeScript codebase without switching to a fully verified implementation language.
+This is a strong checked-instance guarantee. It is not a universal proof for every possible machine or every production system size.
 
 ## Why This Exists
 
@@ -452,7 +460,7 @@ Nobody is doing formal verification for the TypeScript ecosystem. The Lean/Coq/I
 
 TLA PreCheck fills that gap. Not with academic hand-waving, but with a concrete pipeline: define once, generate both, prove equivalence, gate CI.
 
-If the certificate says `equivalent: true`, your spec and your code agree. If it doesn't, your build breaks before the bug ships.
+If the certificate says `equivalent: true`, your spec and your code agree for that checked finite tier. If it doesn't, your build breaks before the bug ships.
 
 ---
 

@@ -10,11 +10,16 @@
     "test": "bun test src",
     "test:db": "bun test src/db/postgres.integration.test.ts",
     "test:fuzz": "RUN_FUZZ_TESTS=1 bun test src/fuzz/differential.test.ts",
+    "test:fuzz:smoke": "RUN_FUZZ_TESTS=1 FUZZ_CASES=12 bun test src/fuzz/differential.test.ts",
+    "test:fuzz:nightly": "RUN_FUZZ_TESTS=1 FUZZ_CASES=64 bun test src/fuzz/differential.test.ts",
     "estimate": "bun dist/cli/machine.js estimate dist/examples/agentRuns.machine.js --tier pr",
     "generate": "bun dist/cli/machine.js generate dist/examples/agentRuns.machine.js --tier pr",
     "generate:db": "bun dist/cli/machine.js generate-db dist/examples/agentRuns.machine.js",
-    "verify": "bun dist/cli/machine.js verify dist/examples/agentRuns.machine.js --tier pr",
-    "verify:db": "bun dist/cli/machine.js verify-db dist/examples/agentRuns.machine.js"
+    "verify": "bun dist/cli/machine.js verify-all dist",
+    "verify:all": "bun dist/cli/machine.js verify-all dist",
+    "verify:all:full": "bun dist/cli/machine.js verify-all dist --all-tiers",
+    "verify:db": "bun dist/cli/machine.js verify-db-all dist",
+    "verify:db:all": "bun dist/cli/machine.js verify-db-all dist"
   },
   "devDependencies": {
     "typescript": "^5.8.3",

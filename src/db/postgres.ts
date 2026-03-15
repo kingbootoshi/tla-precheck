@@ -13,6 +13,15 @@ import type {
   StorageConstraintDef
 } from "../core/dsl.js";
 import { stableStringify } from "../core/stable.js";
+import { assertValidMachine } from "../core/validate.js";
+import {
+  buildWitnessRows,
+  collectRowPredicateColumns,
+  evaluateRowPredicate3vl,
+  type RowPredicateColumnKind,
+  type RowPredicateColumnType,
+  type ThreeValuedBoolean
+} from "./rowPredicate.js";
 
 const POSTGRES_CONTRACT_PREFIX = "tla-precheck:postgres:v1";
 
@@ -40,8 +49,12 @@ interface IndexSnapshot {
   object_name: string;
   is_unique: boolean;
   is_valid: boolean;
+  is_ready: boolean;
+  is_live: boolean;
+  nulls_not_distinct: boolean;
   comment: string | null;
   columns: string[] | null;
+  predicate_sql: string | null;
 }
 
 interface CheckSnapshot {
@@ -50,6 +63,14 @@ interface CheckSnapshot {
   object_name: string;
   is_valid: boolean;
   comment: string | null;
+  predicate_sql: string | null;
+}
+
+interface ColumnTypeSnapshot {
+  column_name: string;
+  sql_type: string;
+  type_name: string;
+  type_category: string;
 }
 
 export interface StorageConstraintRenderResult {
@@ -74,6 +95,9 @@ export interface StorageConstraintVerificationResult {
   valid: boolean;
   hashMatched: boolean;
   columnsMatched?: boolean;
+  predicateMatched?: boolean;
+  flagsMatched?: boolean;
+  typeCoverageMatched?: boolean;
 }
 
 export interface PostgresVerificationCertificate {
@@ -241,6 +265,135 @@ const validateStorageConstraints = (machine: MachineDef): readonly StorageConstr
   return storageConstraints;
 };
 
+const toThreeValuedBoolean = (value: unknown): ThreeValuedBoolean => {
+  if (value === null || typeof value === "boolean") {
+    return value;
+  }
+  throw new Error(`Expected PostgreSQL predicate result to be boolean or null, received ${JSON.stringify(value)}`);
+};
+
+const classifyColumnKind = (
+  column: ColumnTypeSnapshot
+): RowPredicateColumnKind | null => {
+  if (column.type_category === "B") {
+    return "boolean";
+  }
+  if (column.type_category === "N") {
+    return "number";
+  }
+  if (column.type_category === "S" || column.type_name === "uuid") {
+    return "string";
+  }
+  return null;
+};
+
+const loadPredicateColumnTypes = async (
+  sql: SqlClient,
+  schema: string,
+  table: string,
+  predicate: RowPredicateExpr
+): Promise<Record<string, RowPredicateColumnType> | null> => {
+  const columns = collectRowPredicateColumns(predicate);
+  if (columns.length === 0) {
+    return {};
+  }
+
+  const rows = await sql<ColumnTypeSnapshot>`
+    SELECT
+      attr.attname AS column_name,
+      format_type(attr.atttypid, attr.atttypmod) AS sql_type,
+      typ.typname AS type_name,
+      typ.typcategory AS type_category
+    FROM pg_attribute AS attr
+    JOIN pg_class AS tbl
+      ON tbl.oid = attr.attrelid
+    JOIN pg_namespace AS ns
+      ON ns.oid = tbl.relnamespace
+    JOIN pg_type AS typ
+      ON typ.oid = attr.atttypid
+    WHERE ns.nspname = ${schema}
+      AND tbl.relname = ${table}
+      AND attr.attnum > 0
+      AND NOT attr.attisdropped
+  `;
+
+  const rowsByName = new Map(rows.map((row) => [row.column_name, row]));
+  const columnTypes: Record<string, RowPredicateColumnType> = {};
+
+  for (const column of columns) {
+    const row = rowsByName.get(column);
+    if (row === undefined) {
+      return null;
+    }
+    const kind = classifyColumnKind(row);
+    if (kind === null) {
+      return null;
+    }
+    columnTypes[column] = {
+      kind,
+      sqlType: row.sql_type
+    };
+  }
+
+  return columnTypes;
+};
+
+const buildPredicateProbeQuery = (
+  predicateSql: string,
+  row: Record<string, Primitive>,
+  columnTypes: Record<string, RowPredicateColumnType>
+): { query: string; values: readonly Primitive[] } => {
+  const columns = Object.keys(columnTypes).sort((left, right) => left.localeCompare(right));
+  if (columns.length === 0) {
+    return {
+      query: `SELECT (${predicateSql}) AS result;`,
+      values: []
+    };
+  }
+
+  const selectList = columns
+    .map(
+      (column, index) =>
+        `CAST($${index + 1} AS ${columnTypes[column].sqlType}) AS ${quoteIdent(column)}`
+    )
+    .join(", ");
+
+  return {
+    query: `WITH probe AS (SELECT ${selectList}) SELECT (${predicateSql}) AS result FROM probe;`,
+    values: columns.map((column) => row[column])
+  };
+};
+
+const verifyPredicateSemantics = async (
+  sql: SqlClient,
+  schema: string,
+  table: string,
+  expectedPredicate: RowPredicateExpr,
+  actualPredicateSql: string | null
+): Promise<{ predicateMatched: boolean; typeCoverageMatched: boolean }> => {
+  if (actualPredicateSql === null) {
+    return { predicateMatched: false, typeCoverageMatched: false };
+  }
+
+  const columnTypes = await loadPredicateColumnTypes(sql, schema, table, expectedPredicate);
+  if (columnTypes === null) {
+    return { predicateMatched: false, typeCoverageMatched: false };
+  }
+
+  const witnessRows = buildWitnessRows(expectedPredicate, columnTypes);
+  for (const row of witnessRows) {
+    const expected = evaluateRowPredicate3vl(expectedPredicate, row);
+    const probe = buildPredicateProbeQuery(actualPredicateSql, row, columnTypes);
+    const resultRows = await sql.unsafe<{ result: unknown }>(probe.query, probe.values);
+    const actual = toThreeValuedBoolean(resultRows[0]?.result);
+    if (actual !== expected) {
+      return { predicateMatched: false, typeCoverageMatched: true };
+    }
+  }
+
+  return { predicateMatched: true, typeCoverageMatched: true };
+};
+
 const renderUniqueIndexStatements = (
   constraint: PgUniqueWhereConstraintDef
 ): StorageConstraintRenderResult => {
@@ -276,12 +429,14 @@ const renderCheckStatements = (constraint: PgCheckConstraintDef): StorageConstra
 
 export const renderPostgresStorageContract = (
   machine: MachineDef
-): readonly StorageConstraintRenderResult[] =>
-  validateStorageConstraints(machine).map((constraint) =>
+): readonly StorageConstraintRenderResult[] => {
+  assertValidMachine(machine);
+  return validateStorageConstraints(machine).map((constraint) =>
     constraint.kind === "pgUniqueWhere"
       ? renderUniqueIndexStatements(constraint)
       : renderCheckStatements(constraint)
   );
+};
 
 export const renderPostgresStorageSql = (machine: MachineDef): string =>
   renderPostgresStorageContract(machine)
@@ -324,7 +479,11 @@ const verifyUniqueIndex = async (
       idx.relname AS object_name,
       ind.indisunique AS is_unique,
       ind.indisvalid AS is_valid,
+      ind.indisready AS is_ready,
+      ind.indislive AS is_live,
+      ind.indnullsnotdistinct AS nulls_not_distinct,
       descr.description AS comment,
+      pg_get_expr(ind.indpred, ind.indrelid, false) AS predicate_sql,
       ARRAY(
         SELECT attr.attname
         FROM unnest(ind.indkey) WITH ORDINALITY AS key(attnum, ord)
@@ -368,6 +527,19 @@ const verifyUniqueIndex = async (
   const columnsMatched =
     actualColumns.length === constraint.columns.length &&
     actualColumns.every((value, index) => value === constraint.columns[index]);
+  const predicateVerification = await verifyPredicateSemantics(
+    sql,
+    constraint.schema,
+    constraint.table,
+    constraint.where,
+    row.predicate_sql
+  );
+  const flagsMatched =
+    row.is_unique &&
+    row.is_valid &&
+    row.is_ready &&
+    row.is_live &&
+    !row.nulls_not_distinct;
 
   return {
     name: constraint.name,
@@ -376,9 +548,12 @@ const verifyUniqueIndex = async (
     schema: constraint.schema,
     backsInvariant: constraint.backsInvariant,
     present: true,
-    valid: row.is_unique && row.is_valid,
+    valid: row.is_valid,
     hashMatched: row.comment === constraintComment(constraint),
-    columnsMatched
+    columnsMatched,
+    predicateMatched: predicateVerification.predicateMatched,
+    flagsMatched,
+    typeCoverageMatched: predicateVerification.typeCoverageMatched
   };
 };
 
@@ -392,7 +567,8 @@ const verifyCheckConstraint = async (
       tbl.relname AS table_name,
       con.conname AS object_name,
       con.convalidated AS is_valid,
-      descr.description AS comment
+      descr.description AS comment,
+      pg_get_expr(con.conbin, con.conrelid, false) AS predicate_sql
     FROM pg_constraint AS con
     JOIN pg_class AS tbl
       ON tbl.oid = con.conrelid
@@ -422,6 +598,14 @@ const verifyCheckConstraint = async (
     };
   }
 
+  const predicateVerification = await verifyPredicateSemantics(
+    sql,
+    constraint.schema,
+    constraint.table,
+    constraint.predicate,
+    row.predicate_sql
+  );
+
   return {
     name: constraint.name,
     kind: constraint.kind,
@@ -430,7 +614,10 @@ const verifyCheckConstraint = async (
     backsInvariant: constraint.backsInvariant,
     present: true,
     valid: row.is_valid,
-    hashMatched: row.comment === constraintComment(constraint)
+    hashMatched: row.comment === constraintComment(constraint),
+    predicateMatched: predicateVerification.predicateMatched,
+    flagsMatched: row.is_valid,
+    typeCoverageMatched: predicateVerification.typeCoverageMatched
   };
 };
 
@@ -438,6 +625,7 @@ export const verifyPostgresStorageContract = async (
   machine: MachineDef,
   databaseUrl?: string
 ): Promise<PostgresVerificationCertificate> => {
+  assertValidMachine(machine);
   const constraints = validateStorageConstraints(machine);
   const sql = createSqlClient(databaseUrl);
 
@@ -460,7 +648,10 @@ export const verifyPostgresStorageContract = async (
           result.present &&
           result.valid &&
           result.hashMatched &&
-          (result.columnsMatched ?? true)
+          (result.columnsMatched ?? true) &&
+          (result.predicateMatched ?? true) &&
+          (result.flagsMatched ?? true) &&
+          (result.typeCoverageMatched ?? true)
       ),
       checkedAt: new Date().toISOString(),
       constraints: results

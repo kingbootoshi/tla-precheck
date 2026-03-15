@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import { resolveMachine } from "../core/proof.js";
 import { agentRunsMachine } from "../examples/agentRuns.machine.js";
+import { dogMachine } from "../examples/dog.machine.js";
 import { parseTlcDot } from "./parseDot.js";
 
 describe("TLC DOT parsing", () => {
@@ -53,5 +54,41 @@ describe("TLC DOT parsing", () => {
     });
 
     assert.equal(graph.edges[0]?.action, 'create(u1,"r1")');
+  });
+
+  test("parses multiline map assignments emitted for larger state labels", () => {
+    const machine = resolveMachine(agentRunsMachine, "nightly");
+    const source = String.raw`strict digraph DiskGraph {
+1 [label="/\\ status = [r1 |-> \"idle\", r2 |-> \"idle\", r3 |-> \"idle\", r4 |-> \"idle\", r5 |-> \"idle\"]\n/\\ owner = [ r1 |-> \"__NULL__\",\n  r2 |-> \"u1\",\n  r3 |-> \"__NULL__\",\n  r4 |-> \"__NULL__\",\n  r5 |-> \"__NULL__\" ]",style = filled];
+}`;
+
+    const graph = parseTlcDot(machine, source);
+    const initialState = graph.states.get(graph.initial[0]);
+
+    assert.deepEqual(initialState, {
+      owner: { r1: null, r2: "u1", r3: null, r4: null, r5: null },
+      status: {
+        r1: "idle",
+        r2: "idle",
+        r3: "idle",
+        r4: "idle",
+        r5: "idle"
+      }
+    });
+  });
+
+  test("parses scalar labels that omit the conjunction prefix", () => {
+    const machine = resolveMachine(dogMachine, "pr");
+    const source = String.raw`strict digraph DiskGraph {
+1 [label="mode = \"sleeping\"\ntemper = \"calm\"",style = filled];
+}`;
+
+    const graph = parseTlcDot(machine, source);
+    const initialState = graph.states.get(graph.initial[0]);
+
+    assert.deepEqual(initialState, {
+      mode: "sleeping",
+      temper: "calm"
+    });
   });
 });

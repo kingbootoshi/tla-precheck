@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { MachineDef } from "../core/dsl.js";
 import { assertWithinBudgets, estimateMachine, formatEstimate, resolveMachine } from "../core/proof.js";
+import { assertValidMachine } from "../core/validate.js";
 import {
   verifyPostgresStorageContract,
   writeGeneratedStorageContract
@@ -14,6 +15,7 @@ import { lintNoRawMachineWrites } from "../lint/noRawMachineWrites.js";
 import { compareGraphs } from "../tla/compare.js";
 import { generateCfg, writeGeneratedMachine } from "../tla/generate.js";
 import { parseTlcDot } from "../tla/parseDot.js";
+import { discoverMachineModules } from "./discoverMachines.js";
 
 interface CommandResult {
   exitCode: number;
@@ -22,9 +24,18 @@ interface CommandResult {
 }
 
 interface ParsedArgs {
-  command: "estimate" | "generate" | "generate-db" | "lint" | "verify" | "verify-db";
+  command:
+    | "estimate"
+    | "generate"
+    | "generate-db"
+    | "lint"
+    | "verify"
+    | "verify-db"
+    | "verify-all"
+    | "verify-db-all";
   modulePath: string;
   tier?: string;
+  allTiers: boolean;
   outputRoot: string;
   tsconfigPath: string;
 }
@@ -67,10 +78,12 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
     command !== "generate-db" &&
     command !== "lint" &&
     command !== "verify" &&
-    command !== "verify-db"
+    command !== "verify-db" &&
+    command !== "verify-all" &&
+    command !== "verify-db-all"
   ) {
     throw new Error(
-      "Usage: machine <estimate|generate|generate-db|lint|verify|verify-db> <compiled-machine-module.js> [--tier <name>] [--output-root <path>] [--tsconfig <path>]"
+      "Usage: machine <estimate|generate|generate-db|lint|verify|verify-db|verify-all|verify-db-all> <compiled-machine-module.js|compiled-root> [--tier <name>] [--all-tiers] [--output-root <path>] [--tsconfig <path>]"
     );
   }
 
@@ -79,6 +92,7 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
   }
 
   let tier: string | undefined;
+  let allTiers = false;
   let outputRoot = resolve(process.cwd(), ".generated-machines");
   let tsconfigPath = resolve(process.cwd(), "tsconfig.json");
 
@@ -104,6 +118,11 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
       continue;
     }
 
+    if (flag === "--all-tiers") {
+      allTiers = true;
+      continue;
+    }
+
     if (flag === "--tsconfig") {
       const value = argv[index + 1];
       if (value === undefined) {
@@ -121,6 +140,7 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
     command,
     modulePath,
     tier,
+    allTiers,
     outputRoot,
     tsconfigPath
   };
@@ -157,11 +177,18 @@ const runGenerate = async (
   );
 };
 
-const runVerify = async (
+interface VerifyCommandOutput {
+  generated: Awaited<ReturnType<typeof writeGeneratedMachine>>;
+  certificatePath: string;
+  estimate: ReturnType<typeof resolveMachine>["estimate"];
+  certificate: ReturnType<typeof compareGraphs>;
+}
+
+const verifyMachine = async (
   machine: MachineDef,
   tier: string | undefined,
   outputRoot: string
-): Promise<void> => {
+): Promise<VerifyCommandOutput> => {
   const tlaJar = process.env.TLA2TOOLS_JAR;
   if (tlaJar === undefined) {
     throw new Error("TLA2TOOLS_JAR must point to tla2tools.jar");
@@ -263,20 +290,30 @@ const runVerify = async (
   );
   await writeFile(certificatePath, JSON.stringify(certificate, null, 2), "utf8");
 
+  return {
+    generated,
+    certificatePath,
+    estimate: resolvedMachine.estimate,
+    certificate
+  };
+};
+
+const runVerify = async (
+  machine: MachineDef,
+  tier: string | undefined,
+  outputRoot: string
+): Promise<void> => {
+  const result = await verifyMachine(machine, tier, outputRoot);
+
   console.log(
     JSON.stringify(
-      {
-        generated,
-        certificatePath,
-        estimate: resolvedMachine.estimate,
-        certificate
-      },
+      result,
       null,
       2
     )
   );
 
-  if (!certificate.equivalent) {
+  if (!result.certificate.equivalent) {
     process.exitCode = 1;
   }
 };
@@ -304,7 +341,16 @@ const runLint = async (machine: MachineDef, tsconfigPath: string): Promise<void>
   }
 };
 
-const runVerifyDb = async (machine: MachineDef, outputRoot: string): Promise<void> => {
+interface VerifyDbCommandOutput {
+  generated: Awaited<ReturnType<typeof writeGeneratedStorageContract>>;
+  certificatePath: string;
+  certificate: Awaited<ReturnType<typeof verifyPostgresStorageContract>>;
+}
+
+const verifyDbMachine = async (
+  machine: MachineDef,
+  outputRoot: string
+): Promise<VerifyDbCommandOutput> => {
   await mkdir(outputRoot, { recursive: true });
   const generated = await writeGeneratedStorageContract(machine, outputRoot);
   const certificate = await verifyPostgresStorageContract(machine);
@@ -314,26 +360,136 @@ const runVerifyDb = async (machine: MachineDef, outputRoot: string): Promise<voi
   );
   await writeFile(certificatePath, JSON.stringify(certificate, null, 2), "utf8");
 
+  return {
+    generated,
+    certificatePath,
+    certificate
+  };
+};
+
+const runVerifyDb = async (machine: MachineDef, outputRoot: string): Promise<void> => {
+  const result = await verifyDbMachine(machine, outputRoot);
+
   console.log(
     JSON.stringify(
-      {
-        generated,
-        certificatePath,
-        certificate
-      },
+      result,
       null,
       2
     )
   );
 
-  if (!certificate.verified) {
+  if (!result.certificate.verified) {
     process.exitCode = 1;
   }
 };
 
+const resolveTierNames = (
+  machine: MachineDef,
+  tier: string | undefined,
+  allTiers: boolean
+): readonly string[] => {
+  if (allTiers) {
+    return Object.keys(machine.proof.tiers).sort((left, right) => left.localeCompare(right));
+  }
+  return [tier ?? machine.proof.defaultTier];
+};
+
+const runVerifyAll = async (
+  rootPath: string,
+  tier: string | undefined,
+  allTiers: boolean,
+  outputRoot: string
+): Promise<void> => {
+  const modulePaths = await discoverMachineModules(rootPath);
+  const results: Array<{
+    modulePath: string;
+    machine: string;
+    tier: string;
+    certificatePath: string;
+    equivalent: boolean;
+    tsStateCount: number;
+    tlcStateCount: number;
+    tsEdgeCount: number;
+    tlcEdgeCount: number;
+  }> = [];
+
+  for (const modulePath of modulePaths) {
+    const machine = await loadMachine(modulePath);
+    assertValidMachine(machine);
+    for (const tierName of resolveTierNames(machine, tier, allTiers)) {
+      const result = await verifyMachine(machine, tierName, outputRoot);
+      results.push({
+        modulePath,
+        machine: machine.moduleName,
+        tier: tierName,
+        certificatePath: result.certificatePath,
+        equivalent: result.certificate.equivalent,
+        tsStateCount: result.certificate.tsStateCount,
+        tlcStateCount: result.certificate.tlcStateCount,
+        tsEdgeCount: result.certificate.tsEdgeCount,
+        tlcEdgeCount: result.certificate.tlcEdgeCount
+      });
+      if (!result.certificate.equivalent) {
+        process.exitCode = 1;
+      }
+    }
+  }
+
+  console.log(JSON.stringify({ results }, null, 2));
+};
+
+const runVerifyDbAll = async (rootPath: string, outputRoot: string): Promise<void> => {
+  const modulePaths = await discoverMachineModules(rootPath);
+  const results: Array<{
+    modulePath: string;
+    machine: string;
+    certificatePath?: string;
+    verified?: boolean;
+    skipped: boolean;
+  }> = [];
+
+  for (const modulePath of modulePaths) {
+    const machine = await loadMachine(modulePath);
+    assertValidMachine(machine);
+    if ((machine.metadata?.storageConstraints?.length ?? 0) === 0) {
+      results.push({
+        modulePath,
+        machine: machine.moduleName,
+        skipped: true
+      });
+      continue;
+    }
+
+    const result = await verifyDbMachine(machine, outputRoot);
+    results.push({
+      modulePath,
+      machine: machine.moduleName,
+      certificatePath: result.certificatePath,
+      verified: result.certificate.verified,
+      skipped: false
+    });
+    if (!result.certificate.verified) {
+      process.exitCode = 1;
+    }
+  }
+
+  console.log(JSON.stringify({ results }, null, 2));
+};
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
+  if (args.command === "verify-all") {
+    await runVerifyAll(args.modulePath, args.tier, args.allTiers, args.outputRoot);
+    return;
+  }
+
+  if (args.command === "verify-db-all") {
+    await runVerifyDbAll(args.modulePath, args.outputRoot);
+    return;
+  }
+
   const machine = await loadMachine(args.modulePath);
+  assertValidMachine(machine);
 
   if (args.command === "estimate") {
     await runEstimate(machine, args.tier);

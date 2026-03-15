@@ -10,10 +10,8 @@ import type {
   ValueType,
   VariableDef
 } from "./dsl.js";
-
-const NULL_SENTINEL = "__NULL__";
-const RESERVED_DOMAIN_VALUE = "__NULL__";
-const IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9]*$/;
+import { NULL_SENTINEL, RESERVED_DOMAIN_VALUE, assertIdentifier } from "./encoding.js";
+import { assertValidMachine } from "./validate.js";
 
 const bigintPower = (base: bigint, exponent: bigint): bigint => {
   let result = 1n;
@@ -34,12 +32,6 @@ const bigintPower = (base: bigint, exponent: bigint): bigint => {
 const formatBigInt = (value: bigint): string => {
   const source = value.toString();
   return source.replace(/\B(?=(\d{3})+(?!\d))/g, "_");
-};
-
-const assertIdentifier = (value: string, context: string): void => {
-  if (!IDENTIFIER_PATTERN.test(value)) {
-    throw new Error(`${context} must be a valid TLA identifier prefix; received ${JSON.stringify(value)}`);
-  }
 };
 
 const renderDomainValues = (domain: ProofDomainDef): readonly string[] => {
@@ -392,6 +384,7 @@ const resolveTier = (machine: MachineDef, tierName?: string): ResolvedProofTier 
 };
 
 export const estimateMachine = (machine: MachineDef, tierName?: string): MachineEstimate => {
+  assertValidMachine(machine);
   const tier = resolveTier(machine, tierName);
   const domains = Object.fromEntries(
     Object.entries(tier.domains).map(([name, domain]) => [name, renderDomainValues(domain)])
@@ -443,6 +436,7 @@ export const estimateMachine = (machine: MachineDef, tierName?: string): Machine
 };
 
 export const resolveMachine = (machine: MachineDef, tierName?: string): ResolvedMachineDef => {
+  assertValidMachine(machine);
   const resolvedTier = resolveTier(machine, tierName);
   const domains = Object.fromEntries(
     Object.entries(resolvedTier.domains).map(([name, domain]) => [name, renderDomainValues(domain)])

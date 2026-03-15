@@ -67,7 +67,7 @@ describe("Postgres storage contracts", () => {
 
     assert.throws(
       () => renderPostgresStorageContract(brokenMachine),
-      /references unknown invariant missingInvariant/
+      /\[storage-unknown-invariant\] metadata\.storageConstraints\[0\]\.backsInvariant: Unknown backing invariant "missingInvariant"/
     );
   });
 });

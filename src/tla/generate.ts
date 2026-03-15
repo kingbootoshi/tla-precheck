@@ -12,6 +12,7 @@ import type {
 } from "../core/dsl.js";
 import { formatActionLabel } from "../core/actionLabels.js";
 import { NULL_VALUE } from "../core/proof.js";
+import { assertValidMachine } from "../core/validate.js";
 
 const NULL_SYMBOL = "Null";
 
@@ -395,6 +396,7 @@ const renderCfgDomains = (
   });
 
 export const generateTlaModule = (machine: ResolvedMachineDef): string => {
+  assertValidMachine(machine);
   const variables = Object.keys(machine.variables);
   const constantNames = Object.keys(machine.domains);
   const actionBodies = Object.keys(machine.actions).map((name) => actionToTla(machine, name));
@@ -455,6 +457,7 @@ export const generateCfg = (
   machine: ResolvedMachineDef,
   options?: { includeSymmetry?: boolean; specification?: string; stringifyModelValues?: boolean }
 ): string => {
+  assertValidMachine(machine);
   const includeSymmetry = options?.includeSymmetry ?? true;
   const invariantNames = ["TypeOK", ...machine.resolvedTier.invariants];
   const domainLines = renderCfgDomains(machine, {

@@ -1,19 +1,20 @@
 strict digraph DiskGraph {
+node [shape=box,style=rounded]
 nodesep=0.35;
 subgraph cluster_graph {
 color="white";
-542279054448475688 [label="/\\ mode = \"sleeping\"\n/\\ temper = \"calm\"",style = filled]
-542279054448475688 -> 7231163500475248547 [label="wakeUp",color="black",fontcolor="black"];
-7231163500475248547 [label="/\\ mode = \"awake\"\n/\\ temper = \"calm\""];
-7231163500475248547 -> 542279054448475688 [label="fallAsleep",color="black",fontcolor="black"];
-7231163500475248547 -> -2560078536170404903 [label="serveFood",color="black",fontcolor="black"];
--2560078536170404903 [label="/\\ mode = \"eating\"\n/\\ temper = \"calm\""];
-7231163500475248547 -> 1375773954887937871 [label="annoy",color="black",fontcolor="black"];
-1375773954887937871 [label="/\\ mode = \"awake\"\n/\\ temper = \"angry\""];
--2560078536170404903 -> 7231163500475248547 [label="finishEating",color="black",fontcolor="black"];
-1375773954887937871 -> 7231163500475248547 [label="calmDown",color="black",fontcolor="black"];
-{rank = same; 542279054448475688;}
-{rank = same; 7231163500475248547;}
-{rank = same; 1375773954887937871;-2560078536170404903;}
+-2833352619209817277 [label="/\\ mode = \"sleeping\"\n/\\ temper = \"calm\"",style = filled]
+-2833352619209817277 -> -2792889743224789950 [label="wakeUp",color="black",fontcolor="black"];
+-2792889743224789950 [label="/\\ mode = \"awake\"\n/\\ temper = \"calm\"",tooltip="/\\ mode = \"awake\"\n/\\ temper = \"calm\""];
+-2792889743224789950 -> -2833352619209817277 [label="fallAsleep",color="black",fontcolor="black"];
+-2792889743224789950 -> -338572076291594741 [label="serveFood",color="black",fontcolor="black"];
+-338572076291594741 [label="/\\ mode = \"eating\"\n/\\ temper = \"calm\"",tooltip="/\\ mode = \"eating\"\n/\\ temper = \"calm\""];
+-2792889743224789950 -> -2255458970092564168 [label="annoy",color="black",fontcolor="black"];
+-2255458970092564168 [label="/\\ mode = \"awake\"\n/\\ temper = \"angry\"",tooltip="/\\ mode = \"awake\"\n/\\ temper = \"angry\""];
+-338572076291594741 -> -2792889743224789950 [label="finishEating",color="black",fontcolor="black"];
+-2255458970092564168 -> -2792889743224789950 [label="calmDown",color="black",fontcolor="black"];
+{rank = same; -2833352619209817277;}
+{rank = same; -2792889743224789950;}
+{rank = same; -2255458970092564168;-338572076291594741;}
 }
 }
