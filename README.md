@@ -39,8 +39,19 @@ bun run lint
 # Run the framework and example tests
 bun run test
 
+# Run the compiler differential fuzz harness
+# (requires Java and TLA2TOOLS_JAR)
+bun run test:fuzz
+
 # Generate TLA+ artifacts from the example machine
 bun run generate
+
+# Generate the Postgres storage contract
+bun run generate:db
+
+# Verify the live Postgres schema against the generated contract
+# (requires DATABASE_URL and a migrated schema)
+bun run verify:db
 
 # Verify the PR tier (requires Java 17+ and TLA2TOOLS_JAR)
 bun run verify
@@ -69,15 +80,18 @@ If `equivalent` is `false`, your build should fail. That is the entire point.
                |
 Machine DSL ---+---> TLA+ Generator ---------> TLC Model Checker
                |
+               +---> Postgres Contract ------> Live Schema Verification
+               |
                +---> Graph Comparison -------> Equivalence Certificate
 ```
 
-Four paths from one source:
+Five paths from one source:
 
 1. **Interpreter** - explores every reachable state locally in TypeScript
 2. **Estimator** - computes the bounded proof state space and fails fast on budget overruns
 3. **Generator** - emits a `.tla` module and tier-specific `.cfg` config
-4. **Comparison** - normalizes both state graphs, checks they are identical
+4. **Storage Generator** - emits canonical Postgres DDL plus hash-stamped comments
+5. **Comparison** - normalizes both state graphs, checks they are identical
 
 The runtime uses the interpreter directly - not generated guards, not advisory checks. The interpreter IS the runtime. That removes an entire semantic copy and makes the guarantee real.
 
@@ -102,8 +116,17 @@ The required test stack is:
 - sabotage tests that intentionally break one side and prove verification fails
 - randomized differential tests over many tiny generated machines
 - boundary tests that prove raw writes are rejected outside the generated adapter path
+- schema verification that proves the live database really has the required constraints
 
-This repo includes the first, second, and fifth layers directly. The next highest-value addition is randomized differential testing over many tiny bounded machines.
+This repo includes semantic unit tests, end-to-end model verification, raw-write boundary checks, schema verification, and a live Postgres race test. The next highest-value addition is randomized differential testing over many tiny bounded machines.
+
+There is now a dedicated compiler fuzz harness:
+- `bun run test:fuzz`
+- deterministic seed via `FUZZ_SEED`
+- case count via `FUZZ_CASES`
+- generated artifacts under `.generated-machines/fuzz`
+
+If you want an external planning pass from a stronger reasoning model, the repo includes a ready-to-use prompt in [FUZZ_ORACLE_PROMPT.md](FUZZ_ORACLE_PROMPT.md).
 
 ## The DSL
 
@@ -252,6 +275,27 @@ That is exactly the distinction you want users to understand:
 
 See [src/examples/dog.machine.ts](src/examples/dog.machine.ts) and [src/examples/dog.machine.test.ts](src/examples/dog.machine.test.ts) for a minimal scalar-only example.
 
+## Storage Backend
+
+The machine metadata can now declare database constraints that back specific invariants.
+
+For `AgentRuns`, the metadata declares:
+- a partial unique index on `agent_runs(owner)` when `status IN ('queued', 'running')`
+- a `CHECK` constraint that requires `owner IS NOT NULL` whenever the row is active
+
+That gives you a fourth layer:
+- TLA+ proves the invariant in the abstract model
+- the interpreter rejects illegal transitions in application code
+- the database constraint closes race windows and out-of-band writes
+- `machine verify-db` proves the live schema actually has the expected index and check
+
+The storage contract is generated SQL with deterministic hash comments. `verify-db` introspects the live Postgres schema and checks:
+- the object exists
+- it is valid
+- its hash comment matches the machine declaration
+
+There is also a destructive integration test that proves the partial unique index behaves correctly under concurrent writes.
+
 ## Runtime Usage
 
 Route all machine state mutations through the interpreter. Never write to machine-owned state directly.
@@ -285,6 +329,22 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: tla_precheck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tla_precheck"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tla_precheck
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -299,6 +359,24 @@ jobs:
       - run: bun run lint
       - run: bun run test
       - run: bun run build
+      - run: bun run generate:db
+
+      - name: Apply generated storage contract
+        run: |
+          bun -e '
+            const db = new Bun.SQL(process.env.DATABASE_URL);
+            await db.unsafe(`DROP TABLE IF EXISTS public.agent_runs CASCADE;`);
+            await db.unsafe(`CREATE TABLE public.agent_runs (id BIGSERIAL PRIMARY KEY, owner TEXT, status TEXT NOT NULL);`);
+            await db.close();
+            const [{ default: machine }, { applyPostgresStorageContract }] = await Promise.all([
+              import("./dist/examples/agentRuns.machine.js"),
+              import("./dist/db/postgres.js")
+            ]);
+            await applyPostgresStorageContract(machine, process.env.DATABASE_URL);
+          '
+
+      - run: bun run verify:db
+      - run: bun run test:db
 
       - name: Download TLC
         run: |
@@ -328,12 +406,14 @@ src/
     dsl.ts             # Restricted machine DSL
     interpreter.ts     # Canonical runtime semantics
     stable.ts          # Deterministic JSON serialization
+  db/
+    postgres.ts        # Postgres DDL generation and schema verification
   tla/
     generate.ts        # TLA+ module and config generation
     parseDot.ts        # TLC DOT output parser
     compare.ts         # State graph equivalence check
   cli/
-    machine.ts         # CLI: estimate, generate, verify
+    machine.ts         # CLI: estimate, generate, generate-db, verify, verify-db
   lint/
     noRawMachineWrites.ts  # Static analysis for boundary violations
   examples/
@@ -349,11 +429,13 @@ If you follow these rules:
 3. Cross-row invariants are backed by database constraints
 4. Side effects are modeled as state (outbox pattern)
 5. The equivalence certificate says `true`
+6. The storage certificate says `verified: true`
 
 Then:
 - Every runtime machine step is a step of the verified TLA+ machine
 - Every safety invariant proved by TLC holds at runtime
 - Any semantic mismatch between the generator and interpreter is caught
+- Any missing or drifted storage constraint is caught before deploy
 
 ## What Is Not Guaranteed
 

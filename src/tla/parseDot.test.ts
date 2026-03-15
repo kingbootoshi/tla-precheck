@@ -28,4 +28,15 @@ describe("TLC DOT parsing", () => {
     assert.equal(graph.edges[0]?.to, queuedStateKey);
     assert.equal(graph.edges[0]?.action, 'create(u1,"r1")');
   });
+
+  test("recognizes quoted filled styles on initial nodes", () => {
+    const machine = resolveMachine(agentRunsMachine, "pr");
+    const source = String.raw`strict digraph DiskGraph {
+1 [label="/\\ owner = [r1 |-> \"__NULL__\", r2 |-> \"__NULL__\", r3 |-> \"__NULL__\"]\n/\\ status = [r1 |-> \"idle\", r2 |-> \"idle\", r3 |-> \"idle\"]",style="filled"];
+}`;
+
+    const graph = parseTlcDot(machine, source);
+
+    assert.equal(graph.initial.length, 1);
+  });
 });

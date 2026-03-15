@@ -8,9 +8,13 @@
     "typecheck": "bun ./node_modules/typescript/lib/tsc.js --noEmit",
     "lint": "bun ./node_modules/typescript/lib/tsc.js --noEmit && bun src/cli/machine.ts lint src/examples/agentRuns.machine.ts --tsconfig tsconfig.json",
     "test": "bun test src",
+    "test:db": "bun test src/db/postgres.integration.test.ts",
+    "test:fuzz": "RUN_FUZZ_TESTS=1 bun test src/fuzz/differential.test.ts",
     "estimate": "bun dist/cli/machine.js estimate dist/examples/agentRuns.machine.js --tier pr",
     "generate": "bun dist/cli/machine.js generate dist/examples/agentRuns.machine.js --tier pr",
-    "verify": "bun dist/cli/machine.js verify dist/examples/agentRuns.machine.js --tier pr"
+    "generate:db": "bun dist/cli/machine.js generate-db dist/examples/agentRuns.machine.js",
+    "verify": "bun dist/cli/machine.js verify dist/examples/agentRuns.machine.js --tier pr",
+    "verify:db": "bun dist/cli/machine.js verify-db dist/examples/agentRuns.machine.js"
   },
   "devDependencies": {
     "typescript": "^5.8.3",

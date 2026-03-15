@@ -5,6 +5,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { MachineDef } from "../core/dsl.js";
 import { assertWithinBudgets, estimateMachine, formatEstimate, resolveMachine } from "../core/proof.js";
+import {
+  verifyPostgresStorageContract,
+  writeGeneratedStorageContract
+} from "../db/postgres.js";
 import { exploreGraph } from "../core/interpreter.js";
 import { lintNoRawMachineWrites } from "../lint/noRawMachineWrites.js";
 import { compareGraphs } from "../tla/compare.js";
@@ -18,7 +22,7 @@ interface CommandResult {
 }
 
 interface ParsedArgs {
-  command: "estimate" | "generate" | "lint" | "verify";
+  command: "estimate" | "generate" | "generate-db" | "lint" | "verify" | "verify-db";
   modulePath: string;
   tier?: string;
   outputRoot: string;
@@ -57,9 +61,16 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
   const command = argv[2];
   const modulePath = argv[3];
 
-  if (command !== "estimate" && command !== "generate" && command !== "lint" && command !== "verify") {
+  if (
+    command !== "estimate" &&
+    command !== "generate" &&
+    command !== "generate-db" &&
+    command !== "lint" &&
+    command !== "verify" &&
+    command !== "verify-db"
+  ) {
     throw new Error(
-      "Usage: machine <estimate|generate|lint|verify> <compiled-machine-module.js> [--tier <name>] [--output-root <path>] [--tsconfig <path>]"
+      "Usage: machine <estimate|generate|generate-db|lint|verify|verify-db> <compiled-machine-module.js> [--tier <name>] [--output-root <path>] [--tsconfig <path>]"
     );
   }
 
@@ -263,10 +274,52 @@ const runVerify = async (
   }
 };
 
+const runGenerateDb = async (machine: MachineDef, outputRoot: string): Promise<void> => {
+  await mkdir(outputRoot, { recursive: true });
+  const generated = await writeGeneratedStorageContract(machine, outputRoot);
+
+  console.log(
+    JSON.stringify(
+      {
+        generated
+      },
+      null,
+      2
+    )
+  );
+};
+
 const runLint = async (machine: MachineDef, tsconfigPath: string): Promise<void> => {
   const violations = lintNoRawMachineWrites(tsconfigPath, machine);
   console.log(JSON.stringify({ tsconfigPath, violations }, null, 2));
   if (violations.length > 0) {
+    process.exitCode = 1;
+  }
+};
+
+const runVerifyDb = async (machine: MachineDef, outputRoot: string): Promise<void> => {
+  await mkdir(outputRoot, { recursive: true });
+  const generated = await writeGeneratedStorageContract(machine, outputRoot);
+  const certificate = await verifyPostgresStorageContract(machine);
+  const certificatePath = resolve(
+    generated.outputDir,
+    `${machine.moduleName}.postgres.certificate.json`
+  );
+  await writeFile(certificatePath, JSON.stringify(certificate, null, 2), "utf8");
+
+  console.log(
+    JSON.stringify(
+      {
+        generated,
+        certificatePath,
+        certificate
+      },
+      null,
+      2
+    )
+  );
+
+  if (!certificate.verified) {
     process.exitCode = 1;
   }
 };
@@ -285,8 +338,18 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args.command === "generate-db") {
+    await runGenerateDb(machine, args.outputRoot);
+    return;
+  }
+
   if (args.command === "lint") {
     await runLint(machine, args.tsconfigPath);
+    return;
+  }
+
+  if (args.command === "verify-db") {
+    await runVerifyDb(machine, args.outputRoot);
     return;
   }
 

@@ -15,6 +15,7 @@ const unescapeDotLabel = (value: string): string =>
     .replace(/\\\\/g, "\\");
 
 const canonicalizeActionLabel = (value: string): string => unescapeDotLabel(value).trim();
+const isInitialNodeSuffix = (value: string): boolean => /style\s*=\s*"?filled"?/.test(value);
 
 interface Token {
   kind: string;
@@ -248,7 +249,7 @@ export const parseTlcDot = (machine: ResolvedMachineDef, source: string): Parsed
       const canonical = stableStringify(state);
       nodeIdToCanon.set(nodeId, canonical);
       states.set(canonical, state);
-      if (suffix.includes("style = filled") || suffix.includes("style=filled")) {
+      if (isInitialNodeSuffix(suffix)) {
         initial.add(canonical);
       }
       continue;

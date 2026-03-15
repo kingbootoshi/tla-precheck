@@ -1,0 +1,29 @@
+{
+  "certificateVersion": 1,
+  "machine": "AgentRuns",
+  "database": "postgres",
+  "verified": true,
+  "checkedAt": "2026-03-15T02:05:50.357Z",
+  "constraints": [
+    {
+      "name": "agent_runs_one_active_per_user",
+      "kind": "pgUniqueWhere",
+      "table": "agent_runs",
+      "schema": "public",
+      "backsInvariant": "oneActivePerUser",
+      "present": true,
+      "valid": true,
+      "hashMatched": true,
+      "columnsMatched": true
+    },
+    {
+      "name": "agent_runs_active_requires_owner",
+      "kind": "pgCheck",
+      "table": "agent_runs",
+      "schema": "public",
+      "present": true,
+      "valid": true,
+      "hashMatched": true
+    }
+  ]
+}

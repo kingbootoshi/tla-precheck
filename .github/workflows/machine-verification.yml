@@ -8,6 +8,22 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: tla_precheck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tla_precheck"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tla_precheck
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +40,30 @@ jobs:
       - run: bun run lint
       - run: bun run test
       - run: bun run build
+      - run: bun run generate:db
+
+      - name: Apply generated storage contract
+        run: |
+          bun -e '
+            const db = new Bun.SQL(process.env.DATABASE_URL);
+            await db.unsafe(`
+              DROP TABLE IF EXISTS public.agent_runs CASCADE;
+              CREATE TABLE public.agent_runs (
+                id BIGSERIAL PRIMARY KEY,
+                owner TEXT,
+                status TEXT NOT NULL
+              );
+            `);
+            await db.close();
+            const [{ default: machine }, { applyPostgresStorageContract }] = await Promise.all([
+              import("./dist/examples/agentRuns.machine.js"),
+              import("./dist/db/postgres.js")
+            ]);
+            await applyPostgresStorageContract(machine, process.env.DATABASE_URL);
+          '
+
+      - run: bun run verify:db
+      - run: bun run test:db
 
       - name: Download TLC
         run: |

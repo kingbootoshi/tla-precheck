@@ -81,6 +81,48 @@ export interface DomainValuesDef {
 
 export type ProofDomainDef = ModelValuesDomainDef | IdsDomainDef | DomainValuesDef;
 
+export interface PgColumnExpr {
+  kind: "pgColumn";
+  name: string;
+}
+
+export interface PgLiteralExpr {
+  kind: "pgLiteral";
+  value: Primitive;
+}
+
+export type RowValueExpr = PgColumnExpr | PgLiteralExpr;
+
+export type RowPredicateExpr =
+  | { kind: "pgEq"; left: RowValueExpr; right: RowValueExpr }
+  | { kind: "pgInSet"; target: RowValueExpr; values: readonly Primitive[] }
+  | { kind: "pgAnd"; values: readonly RowPredicateExpr[] }
+  | { kind: "pgOr"; values: readonly RowPredicateExpr[] }
+  | { kind: "pgNot"; value: RowPredicateExpr }
+  | { kind: "pgIsNull"; value: RowValueExpr }
+  | { kind: "pgIsNotNull"; value: RowValueExpr };
+
+export interface PgUniqueWhereConstraintDef {
+  kind: "pgUniqueWhere";
+  name: string;
+  schema: string;
+  table: string;
+  columns: readonly string[];
+  where: RowPredicateExpr;
+  backsInvariant?: string;
+}
+
+export interface PgCheckConstraintDef {
+  kind: "pgCheck";
+  name: string;
+  schema: string;
+  table: string;
+  predicate: RowPredicateExpr;
+  backsInvariant?: string;
+}
+
+export type StorageConstraintDef = PgUniqueWhereConstraintDef | PgCheckConstraintDef;
+
 export interface ProofBudgets {
   maxEstimatedStates?: number;
   maxEstimatedBranching?: number;
@@ -107,6 +149,7 @@ export interface MachineMetadata {
   ownedTables?: readonly string[];
   ownedColumns?: Record<string, readonly string[]>;
   allowedWriterModules?: readonly string[];
+  storageConstraints?: readonly StorageConstraintDef[];
 }
 
 export interface MachineDef {
@@ -154,15 +197,123 @@ export interface ResolvedMachineDef extends MachineDef {
 
 export const defineMachine = <const M extends MachineDef>(machine: M): M => machine;
 
+const MACHINE_EXPR_KINDS = new Set<Expr["kind"]>([
+  "lit",
+  "param",
+  "var",
+  "index",
+  "set",
+  "and",
+  "or",
+  "not",
+  "eq",
+  "lte",
+  "in",
+  "count",
+  "forall"
+]);
+
+const ROW_VALUE_KINDS = new Set<RowValueExpr["kind"]>(["pgColumn", "pgLiteral"]);
+
+const ROW_PREDICATE_KINDS = new Set<RowPredicateExpr["kind"]>([
+  "pgEq",
+  "pgInSet",
+  "pgAnd",
+  "pgOr",
+  "pgNot",
+  "pgIsNull",
+  "pgIsNotNull"
+]);
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isMachineExpr = (value: unknown): value is Expr =>
+  isObject(value) &&
+  typeof value.kind === "string" &&
+  MACHINE_EXPR_KINDS.has(value.kind as Expr["kind"]);
+
+const isRowValueExpr = (value: unknown): value is RowValueExpr =>
+  isObject(value) &&
+  typeof value.kind === "string" &&
+  ROW_VALUE_KINDS.has(value.kind as RowValueExpr["kind"]);
+
+const isRowPredicateExpr = (value: unknown): value is RowPredicateExpr =>
+  isObject(value) &&
+  typeof value.kind === "string" &&
+  ROW_PREDICATE_KINDS.has(value.kind as RowPredicateExpr["kind"]);
+
+const isPrimitiveValue = (value: unknown): value is Primitive =>
+  value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+
+const toRowValueExpr = (value: Primitive | RowValueExpr): RowValueExpr => {
+  if (isRowValueExpr(value)) {
+    return value;
+  }
+  return { kind: "pgLiteral", value };
+};
+
 export const lit = (value: JsonValue): Expr => ({ kind: "lit", value });
 export const param = (name: string): Expr => ({ kind: "param", name });
 export const variable = (name: string): Expr => ({ kind: "var", name });
 export const index = (target: Expr, key: Expr): Expr => ({ kind: "index", target, key });
 export const setOf = (...values: readonly Expr[]): Expr => ({ kind: "set", values });
-export const and = (...values: readonly Expr[]): Expr => ({ kind: "and", values });
-export const or = (...values: readonly Expr[]): Expr => ({ kind: "or", values });
-export const not = (value: Expr): Expr => ({ kind: "not", value });
-export const eq = (left: Expr, right: Expr): Expr => ({ kind: "eq", left, right });
+
+export function and(...values: readonly Expr[]): Expr;
+export function and(...values: readonly RowPredicateExpr[]): RowPredicateExpr;
+export function and(
+  ...values: readonly (Expr | RowPredicateExpr)[]
+): Expr | RowPredicateExpr {
+  if (values.length === 0 || values.every((value) => isMachineExpr(value))) {
+    return { kind: "and", values: values as readonly Expr[] };
+  }
+  if (values.every((value) => isRowPredicateExpr(value))) {
+    return { kind: "pgAnd", values: values as readonly RowPredicateExpr[] };
+  }
+  throw new Error("and() operands must all be machine expressions or all be row predicates");
+}
+
+export function or(...values: readonly Expr[]): Expr;
+export function or(...values: readonly RowPredicateExpr[]): RowPredicateExpr;
+export function or(
+  ...values: readonly (Expr | RowPredicateExpr)[]
+): Expr | RowPredicateExpr {
+  if (values.length === 0 || values.every((value) => isMachineExpr(value))) {
+    return { kind: "or", values: values as readonly Expr[] };
+  }
+  if (values.every((value) => isRowPredicateExpr(value))) {
+    return { kind: "pgOr", values: values as readonly RowPredicateExpr[] };
+  }
+  throw new Error("or() operands must all be machine expressions or all be row predicates");
+}
+
+export function not(value: Expr): Expr;
+export function not(value: RowPredicateExpr): RowPredicateExpr;
+export function not(value: Expr | RowPredicateExpr): Expr | RowPredicateExpr {
+  if (isMachineExpr(value)) {
+    return { kind: "not", value };
+  }
+  if (isRowPredicateExpr(value)) {
+    return { kind: "pgNot", value };
+  }
+  throw new Error("not() operand must be a machine expression or row predicate");
+}
+
+export function eq(left: Expr, right: Expr): Expr;
+export function eq(left: Primitive | RowValueExpr, right: Primitive | RowValueExpr): RowPredicateExpr;
+export function eq(
+  left: Expr | Primitive | RowValueExpr,
+  right: Expr | Primitive | RowValueExpr
+): Expr | RowPredicateExpr {
+  if (isMachineExpr(left) && isMachineExpr(right)) {
+    return { kind: "eq", left, right };
+  }
+  if ((isPrimitiveValue(left) || isRowValueExpr(left)) && (isPrimitiveValue(right) || isRowValueExpr(right))) {
+    return { kind: "pgEq", left: toRowValueExpr(left), right: toRowValueExpr(right) };
+  }
+  throw new Error("eq() operands must both be machine expressions or both be row values");
+}
+
 export const lte = (left: Expr, right: Expr): Expr => ({ kind: "lte", left, right });
 export const isin = (elem: Expr, set: Expr): Expr => ({ kind: "in", elem, set });
 export const count = (domain: string, binder: string, where: Expr): Expr => ({
@@ -176,6 +327,24 @@ export const forall = (domain: string, binder: string, where: Expr): Expr => ({
   domain,
   binder,
   where
+});
+
+export const col = (name: string): RowValueExpr => ({ kind: "pgColumn", name });
+export const inSet = (
+  target: Primitive | RowValueExpr,
+  values: readonly Primitive[]
+): RowPredicateExpr => ({
+  kind: "pgInSet",
+  target: toRowValueExpr(target),
+  values
+});
+export const isNull = (value: Primitive | RowValueExpr): RowPredicateExpr => ({
+  kind: "pgIsNull",
+  value: toRowValueExpr(value)
+});
+export const isNotNull = (value: Primitive | RowValueExpr): RowPredicateExpr => ({
+  kind: "pgIsNotNull",
+  value: toRowValueExpr(value)
 });
 
 export const enumType = (...values: readonly string[]): ValueType => ({ kind: "enum", values });
@@ -226,4 +395,20 @@ export const ids = (options: { size: number; prefix?: string }): IdsDomainDef =>
 export const domainValues = (...values: readonly string[]): DomainValuesDef => ({
   kind: "values",
   values
+});
+
+export const pgUniqueWhere = (
+  constraint: Omit<PgUniqueWhereConstraintDef, "kind" | "schema"> & { schema?: string }
+): PgUniqueWhereConstraintDef => ({
+  ...constraint,
+  kind: "pgUniqueWhere",
+  schema: constraint.schema ?? "public"
+});
+
+export const pgCheck = (
+  constraint: Omit<PgCheckConstraintDef, "kind" | "schema"> & { schema?: string }
+): PgCheckConstraintDef => ({
+  ...constraint,
+  kind: "pgCheck",
+  schema: constraint.schema ?? "public"
 });

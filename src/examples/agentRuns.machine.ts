@@ -1,5 +1,6 @@
 import {
   and,
+  col,
   count,
   defineMachine,
   domainType,
@@ -7,14 +8,20 @@ import {
   eq,
   forall,
   ids,
+  inSet,
   index,
+  isNotNull,
   isin,
   lit,
   lte,
   mapVar,
   modelValues,
+  not,
   optionType,
   param,
+  pgCheck,
+  pgUniqueWhere,
+  or,
   setMap,
   setOf,
   variable
@@ -147,7 +154,24 @@ export const agentRunsMachine = defineMachine({
     ownedColumns: {
       agent_runs: ["status", "owner"]
     },
-    allowedWriterModules: ["src/generated/agentRuns.adapter.ts"]
+    allowedWriterModules: ["src/generated/agentRuns.adapter.ts"],
+    storageConstraints: [
+      pgUniqueWhere({
+        name: "agent_runs_one_active_per_user",
+        table: "agent_runs",
+        columns: ["owner"],
+        where: inSet(col("status"), ["queued", "running"]),
+        backsInvariant: "oneActivePerUser"
+      }),
+      pgCheck({
+        name: "agent_runs_active_requires_owner",
+        table: "agent_runs",
+        predicate: or(
+          not(inSet(col("status"), ["queued", "running"])),
+          isNotNull(col("owner"))
+        )
+      })
+    ]
   }
 });
 
