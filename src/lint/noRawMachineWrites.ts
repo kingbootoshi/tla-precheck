@@ -68,7 +68,7 @@ export const lintNoRawMachineWrites = (
   const ownedTables = new Set(machine.metadata?.ownedTables ?? []);
   const allowedWriters = new Set(machine.metadata?.allowedWriterModules ?? []);
   if (machine.metadata?.runtimeAdapter !== undefined) {
-    allowedWriters.add(`src/generated/${machine.moduleName}.adapter.ts`);
+    allowedWriters.add(`src/machine-adapters/${machine.moduleName}.adapter.ts`);
   }
   const ownedColumns = machine.metadata?.ownedColumns ?? {};
 

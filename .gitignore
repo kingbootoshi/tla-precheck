@@ -4,6 +4,8 @@ dist/
 .generated-machines/**/pr/.tlc-meta/
 .generated-machines/**/*.bin
 .generated-machines/fuzz/
+src/generated/
+src/machine-adapters/
 *.st
 *.fp
 video/

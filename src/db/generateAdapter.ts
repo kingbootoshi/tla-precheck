@@ -10,6 +10,8 @@ export interface GeneratedAdapterPaths {
   adapterPath: string;
 }
 
+const DEFAULT_ADAPTER_OUTPUT_ROOT = resolve(process.cwd(), "src/machine-adapters");
+
 const toImportPath = (fromFile: string, targetFile: string): string => {
   const relativePath = relative(dirname(fromFile), targetFile).replaceAll("\\", "/");
   const withPrefix = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
@@ -188,7 +190,7 @@ export const renderAdapterModule = (machine: MachineDef): string => {
     throw new Error(`Machine ${machine.moduleName} does not declare metadata.runtimeAdapter`);
   }
 
-  const outputRoot = resolve(process.cwd(), "src/generated");
+  const outputRoot = DEFAULT_ADAPTER_OUTPUT_ROOT;
   const adapterPath = join(outputRoot, `${machine.moduleName}.adapter.ts`);
   const dslImportPath = toImportPath(adapterPath, resolve(process.cwd(), "src/core/dsl.ts"));
   const runtimeImportPath = toImportPath(adapterPath, resolve(process.cwd(), "src/db/adapterRuntime.ts"));
@@ -257,7 +259,7 @@ export const renderAdapterModule = (machine: MachineDef): string => {
 
 export const writeGeneratedAdapter = async (
   machine: MachineDef,
-  outputRoot = resolve(process.cwd(), "src/generated")
+  outputRoot = DEFAULT_ADAPTER_OUTPUT_ROOT
 ): Promise<GeneratedAdapterPaths> => {
   assertValidMachine(machine);
   const runtimeAdapter = machine.metadata?.runtimeAdapter;

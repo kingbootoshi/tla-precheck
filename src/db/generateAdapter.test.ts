@@ -69,7 +69,7 @@ const adapterMachine = defineMachine({
 
 describe("adapter generation", () => {
   test("writes the deterministic default adapter path", async () => {
-    const expectedPath = resolve(process.cwd(), "src/generated/AgentRuns.adapter.ts");
+    const expectedPath = resolve(process.cwd(), "src/machine-adapters/AgentRuns.adapter.ts");
 
     try {
       const generated = await writeGeneratedAdapter(adapterMachine);
@@ -80,7 +80,7 @@ describe("adapter generation", () => {
   });
 
   test("embeds machine JSON and emits one exported function per action", async () => {
-    const adapterPath = resolve(process.cwd(), "src/generated/AgentRuns.adapter.ts");
+    const adapterPath = resolve(process.cwd(), "src/machine-adapters/AgentRuns.adapter.ts");
 
     try {
       await writeGeneratedAdapter(adapterMachine);
@@ -96,7 +96,7 @@ describe("adapter generation", () => {
   });
 
   test("imports adapterRuntime and not the source machine module", async () => {
-    const adapterPath = resolve(process.cwd(), "src/generated/AgentRuns.adapter.ts");
+    const adapterPath = resolve(process.cwd(), "src/machine-adapters/AgentRuns.adapter.ts");
 
     try {
       await writeGeneratedAdapter(adapterMachine);

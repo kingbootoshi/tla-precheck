@@ -35,7 +35,7 @@ describe("noRawMachineWrites lint", () => {
     });
 
     try {
-      await mkdir(join(projectDir, "src", "generated"), { recursive: true });
+      await mkdir(join(projectDir, "src", "machine-adapters"), { recursive: true });
       await writeFile(
         join(projectDir, "tsconfig.json"),
         JSON.stringify(
@@ -62,7 +62,7 @@ supabase.from("agent_runs").update({ analytics_only: "ok" });
         "utf8"
       );
       await writeFile(
-        join(projectDir, "src", "generated", "AgentRuns.adapter.ts"),
+        join(projectDir, "src", "machine-adapters", "AgentRuns.adapter.ts"),
         `${SUPABASE_DECLARATION}
 supabase.from("agent_runs").update({ status: "running" });
 `,
