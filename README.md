@@ -33,8 +33,8 @@ bun install
 # Estimate the PR proof tier before TLC ever runs
 bun run estimate
 
-# Enforce the raw-write boundary on machine-owned state
-bun run lint
+# Enforce the raw-write boundary on all discovered source machines
+bun run lint:all
 
 # Run the framework and example tests
 bun run test
@@ -56,14 +56,20 @@ bun run verify:db
 # Verify every discovered machine at its default proof tier
 # (requires Java 17+ and TLA2TOOLS_JAR)
 bun run verify
+
+# Run the full proof + equivalence + DB contract + adapter smoke build
+# for the example machine
+bun run agent-build
 ```
 
-The verify step produces an equivalence certificate:
+The verify step produces a verification certificate:
 
 ```json
 {
   "machine": "AgentRuns",
   "tier": "pr",
+  "proofPassed": true,
+  "graphEquivalenceAttempted": true,
   "equivalent": true,
   "tsStateCount": 1099,
   "tlcStateCount": 1099,
@@ -72,7 +78,7 @@ The verify step produces an equivalence certificate:
 }
 ```
 
-If `equivalent` is `false`, your build should fail. That is the entire point.
+If `proofPassed` is `false`, your build should fail. If graph equivalence was attempted and `equivalent !== true`, your build should fail.
 
 ## How It Works
 
@@ -96,11 +102,9 @@ Five paths from one source:
 
 The runtime uses the interpreter directly - not generated guards, not advisory checks. The interpreter IS the runtime. That removes an entire semantic copy and makes the guarantee real.
 
-The TLA+ backend is treated as **untrusted until validated**. `machine verify` runs TLC twice:
-- once with the tier’s real config for the actual proof run
-- once without symmetry for translation validation against the interpreter graph
+The TLA+ backend is treated as **untrusted until validated**. `machine verify` always runs TLC once on the real `Spec` proof configuration. On tiers where `graphEquivalence !== false`, it then runs a second TLC pass on `EquivalenceSpec` without symmetry for translation validation against the interpreter graph.
 
-That preserves symmetry for safety tiers without corrupting the equivalence certificate.
+That preserves symmetry for proof runs without corrupting graph-equivalence certificates.
 
 ## Testing This Like a Compiler
 
@@ -126,8 +130,6 @@ There is now a dedicated compiler fuzz harness:
 - deterministic seed via `FUZZ_SEED`
 - case count via `FUZZ_CASES`
 - generated artifacts under `.generated-machines/fuzz`
-
-If you want an external planning pass from a stronger reasoning model, the repo includes a ready-to-use prompt in [FUZZ_ORACLE_PROMPT.md](FUZZ_ORACLE_PROMPT.md).
 
 ## The DSL
 
@@ -194,6 +196,7 @@ export const agentRunsMachine = defineMachine({
         }
       },
       nightly: {
+        graphEquivalence: false,
         domains: {
           Users: modelValues("u", { size: 3, symmetry: true }),
           Runs: ids({ prefix: "r", size: 5 })
@@ -206,6 +209,19 @@ export const agentRunsMachine = defineMachine({
           maxEstimatedBranching: 60
         }
       }
+    }
+  },
+  metadata: {
+    ownedTables: ["agent_runs"],
+    ownedColumns: {
+      agent_runs: ["status", "owner"]
+    },
+    runtimeAdapter: {
+      schema: "public",
+      table: "agent_runs",
+      rowDomain: "Runs",
+      keyColumn: "id",
+      keySqlType: "bigint"
     }
   }
 });
@@ -245,6 +261,23 @@ Every machine must declare bounded proof tiers. That is the hard guard against s
 - `optionType(T)` replaces ad hoc `T | null` unions
 
 `machine estimate` computes the implied state count and branching from those proof domains and fails when a tier exceeds its budget.
+
+`graphEquivalence` defaults to `true`. Set `graphEquivalence: false` on larger tiers that should run TLC proof only. This is how large nightly tiers avoid blowing past the TypeScript graph-exploration cap while still proving invariants and properties.
+
+### Hard Safety Limits
+
+The compiler now enforces hard caps in addition to any declared tier budgets:
+
+- graph-equivalence tiers may not declare `maxEstimatedStates > 100_000`
+- graph-equivalence tiers may not declare `maxEstimatedBranching > 10_000`
+- actual resolved graph-equivalence runs stop before TS exploration if the estimate exceeds `100_000` states or `10_000` branching
+- proof domains are capped at `100` values
+- actions are capped at `4` parameters
+- TLC runs with `java -Xmx4G -jar ... -workers auto`
+- TLC proof/equivalence runs time out after `60_000 ms`
+- TLC output is truncated after `4 MB`
+- TLC metadata directories are capped at `1 GB`
+- DOT files above `50 MB` fail verification
 
 ## Dog Example
 
@@ -321,6 +354,22 @@ WHERE status IN ('queued', 'running');
 
 The machine proves the invariant holds in the abstract model. The database constraint enforces it against races that no application-level guard can close.
 
+## Generated Adapter
+
+There is now a generated runtime adapter path for a deliberately narrow subset:
+
+- exactly one owned table
+- `metadata.runtimeAdapter` declared
+- all machine variables are `mapVar`
+- all map vars share one row domain
+- variable names match same-named owned SQL columns
+- map initial values are primitive literals
+- action quantifiers range only over the row domain
+
+The v1 generated adapter locks and loads the whole owned table with one ordered `SELECT ... FOR UPDATE`, reconstructs runtime domains, runs the verified interpreter via `step()`, diffs the resulting map state, and persists the changes inside the same transaction.
+
+That is intentionally conservative. Throughput is not the first goal here. Truthfulness is.
+
 ## CI Integration
 
 ```yaml
@@ -360,7 +409,7 @@ jobs:
           java-version: "17"
 
       - run: bun install
-      - run: bun run lint
+      - run: bun run lint:all
       - run: bun run test
       - run: bun run build
       - run: bun run generate:db
@@ -392,6 +441,11 @@ jobs:
             -o .cache/tla/tla2tools.jar
           echo "${TLA2TOOLS_SHA256}  .cache/tla/tla2tools.jar" | shasum -a 256 -c -
 
+      - name: Agent build smoke
+        env:
+          TLA2TOOLS_JAR: ${{ github.workspace }}/.cache/tla/tla2tools.jar
+        run: bun run agent-build
+
       - name: Verify machines
         env:
           TLA2TOOLS_JAR: ${{ github.workspace }}/.cache/tla/tla2tools.jar
@@ -415,13 +469,16 @@ src/
     interpreter.ts     # Canonical runtime semantics
     stable.ts          # Deterministic JSON serialization
   db/
+    adapterRuntime.ts  # Shared runtime for generated adapters
+    generateAdapter.ts # Generated adapter module writer
     postgres.ts        # Postgres DDL generation and schema verification
   tla/
     generate.ts        # TLA+ module and config generation
     parseDot.ts        # TLC DOT output parser
     compare.ts         # State graph equivalence check
+    verify.ts          # TLC proof/equivalence orchestration
   cli/
-    machine.ts         # CLI: estimate, generate, generate-db, verify, verify-db, verify-all, verify-db-all
+    machine.ts         # CLI: estimate, generate, generate-db, verify, verify-db, verify-all, verify-db-all, lint-all, agent-build
   lint/
     noRawMachineWrites.ts  # Static analysis for boundary violations
   examples/
@@ -441,7 +498,8 @@ If you follow these rules:
 
 Then:
 - For each checked machine and finite proof tier, every runtime machine step is a step of the checked TLA+ machine
-- Any semantic mismatch between the generator and interpreter is caught for those checked tiers
+- Proof-only tiers still prove their checked invariants/properties with TLC, but do not claim TS graph equivalence
+- Any semantic mismatch between the generator and interpreter is caught for tiers where graph equivalence is actually attempted
 - Any missing or drifted storage constraint is caught before deploy for the declared storage contracts
 - Safety claims remain bounded by the checked proof model and the machine boundary
 
@@ -451,6 +509,7 @@ Then:
 - External API behavior not modeled as state
 - Liveness properties (without matching runtime fairness assumptions)
 - Unbounded domains beyond the chosen proof model
+- Raw-write lint as a complete enforcement proof - it is a guardrail, not a proof
 
 This is a strong checked-instance guarantee. It is not a universal proof for every possible machine or every production system size.
 

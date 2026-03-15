@@ -2,6 +2,7 @@ import type {
   ActionDef,
   Expr,
   JsonValue,
+  MachineDef,
   Primitive,
   ResolvedMachineDef,
   Update,
@@ -24,6 +25,10 @@ export interface StateGraph {
   states: ReadonlyMap<string, MachineState>;
   edges: readonly GraphEdge[];
 }
+
+export type ExecutableMachineDef = Pick<MachineDef, "actions" | "moduleName" | "variables"> & {
+  domains: Record<string, readonly string[]>;
+};
 
 type FiniteMachineDef = Pick<
   ResolvedMachineDef,
@@ -76,7 +81,7 @@ const hasOwn = (record: Record<string, Primitive>, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(record, key);
 
 const envMatchesAction = (
-  machine: FiniteMachineDef,
+  machine: ExecutableMachineDef,
   action: ActionDef,
   env: EvalEnv
 ): boolean => {
@@ -100,7 +105,7 @@ const envMatchesAction = (
   });
 };
 
-export const canonicalizeState = (machine: FiniteMachineDef, state: MachineState): string => {
+export const canonicalizeState = (machine: ExecutableMachineDef, state: MachineState): string => {
   const projected = Object.fromEntries(
     Object.keys(machine.variables)
       .sort((left, right) => left.localeCompare(right))
@@ -111,7 +116,7 @@ export const canonicalizeState = (machine: FiniteMachineDef, state: MachineState
 };
 
 export const evaluateExpr = (
-  machine: FiniteMachineDef,
+  machine: ExecutableMachineDef,
   state: MachineState,
   env: EvalEnv,
   expr: Expr
@@ -194,7 +199,7 @@ export const evaluateExpr = (
   }
 };
 
-const initialValueForVar = (machine: FiniteMachineDef, variableDef: VariableDef): JsonValue => {
+const initialValueForVar = (machine: ExecutableMachineDef, variableDef: VariableDef): JsonValue => {
   if (variableDef.kind === "scalar") {
     return evaluateExpr(machine, {}, {}, variableDef.initial);
   }
@@ -209,7 +214,7 @@ const initialValueForVar = (machine: FiniteMachineDef, variableDef: VariableDef)
   );
 };
 
-export const buildInitialState = (machine: FiniteMachineDef): MachineState => {
+export const buildInitialState = (machine: ExecutableMachineDef): MachineState => {
   const out: MachineState = {};
   for (const [name, variableDef] of Object.entries(machine.variables)) {
     out[name] = initialValueForVar(machine, variableDef);
@@ -218,7 +223,7 @@ export const buildInitialState = (machine: FiniteMachineDef): MachineState => {
 };
 
 const applyUpdate = (
-  machine: FiniteMachineDef,
+  machine: ExecutableMachineDef,
   sourceState: MachineState,
   targetState: MachineState,
   env: EvalEnv,
@@ -239,7 +244,7 @@ const applyUpdate = (
 };
 
 export const enabled = (
-  machine: FiniteMachineDef,
+  machine: ExecutableMachineDef,
   state: MachineState,
   actionName: string,
   env: EvalEnv
@@ -255,7 +260,7 @@ export const enabled = (
 };
 
 export const step = (
-  machine: FiniteMachineDef,
+  machine: ExecutableMachineDef,
   state: MachineState,
   actionName: string,
   env: EvalEnv
@@ -275,7 +280,7 @@ export const step = (
   return nextState;
 };
 
-export const enumerateBindings = (machine: FiniteMachineDef, action: ActionDef): EvalEnv[] => {
+export const enumerateBindings = (machine: ExecutableMachineDef, action: ActionDef): EvalEnv[] => {
   const paramDomains = Object.entries(action.params).map(([name, domainName]) => {
     const domain = machine.domains[domainName];
     if (domain === undefined) {

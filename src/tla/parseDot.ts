@@ -220,6 +220,9 @@ const parseAssignmentLine = (line: string): [string, JsonValue] => {
   const valueText = normalized.slice(separator + 1).trim();
   const cursor = new Cursor(tokenize(valueText));
   const value = parseValue(cursor);
+  if (cursor.peek() !== null) {
+    throw new Error(`Unexpected trailing tokens in assignment line: ${line}`);
+  }
   return [name, value];
 };
 
@@ -232,7 +235,7 @@ const parseNodeLabel = (machine: ResolvedMachineDef, rawLabel: string): JsonValu
   let current = "";
 
   for (const line of lines) {
-    if (line.startsWith("/\\") || current.length === 0 || line.includes("=")) {
+    if (line.startsWith("/\\") || line.includes("=")) {
       if (current.length > 0) {
         assignments.push(current);
       }
@@ -241,7 +244,7 @@ const parseNodeLabel = (machine: ResolvedMachineDef, rawLabel: string): JsonValu
     }
 
     if (current.length === 0) {
-      throw new Error(`Could not parse node label line without assignment prefix: ${line}`);
+      throw new Error(`Malformed multiline continuation without an active assignment: ${line}`);
     }
 
     current = `${current} ${line}`;
@@ -251,12 +254,29 @@ const parseNodeLabel = (machine: ResolvedMachineDef, rawLabel: string): JsonValu
     assignments.push(current);
   }
 
-  const parsed = Object.fromEntries(assignments.map((line) => parseAssignmentLine(line)));
-  return Object.fromEntries(
-    Object.keys(machine.variables)
-      .sort((left, right) => left.localeCompare(right))
-      .map((name) => [name, parsed[name] ?? null])
-  );
+  const parsedAssignments: [string, JsonValue][] = [];
+  const seenNames = new Set<string>();
+  for (const assignment of assignments) {
+    const [name, value] = parseAssignmentLine(assignment);
+    if (seenNames.has(name)) {
+      throw new Error(`Duplicate assignment in TLC node label: ${name}`);
+    }
+    seenNames.add(name);
+    parsedAssignments.push([name, value]);
+  }
+
+  const expectedNames = Object.keys(machine.variables);
+  const missingNames = expectedNames.filter((name) => !seenNames.has(name));
+  if (missingNames.length > 0) {
+    throw new Error(`Missing state variables in TLC node label: ${missingNames.join(", ")}`);
+  }
+
+  const unexpectedNames = [...seenNames].filter((name) => !expectedNames.includes(name));
+  if (unexpectedNames.length > 0) {
+    throw new Error(`Unexpected state variables in TLC node label: ${unexpectedNames.join(", ")}`);
+  }
+
+  return Object.fromEntries(parsedAssignments);
 };
 
 export const parseTlcDot = (

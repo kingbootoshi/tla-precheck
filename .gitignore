@@ -6,3 +6,5 @@ dist/
 .generated-machines/fuzz/
 *.st
 *.fp
+video/
+docs/superpowers

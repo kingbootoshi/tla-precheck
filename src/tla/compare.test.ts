@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import { resolveMachine } from "../core/proof.js";
 import { stableStringify } from "../core/stable.js";
 import { agentRunsMachine } from "../examples/agentRuns.machine.js";
-import { compareGraphs } from "./compare.js";
+import { buildVerificationCertificate, compareGraphs } from "./compare.js";
 
 describe("graph comparison", () => {
   test("fails when the same edge uses different parameter bindings", () => {
@@ -31,8 +31,7 @@ describe("graph comparison", () => {
       [next, queuedByU1]
     ]);
 
-    const certificate = compareGraphs(
-      machine,
+    const comparison = compareGraphs(
       {
         initial: [initial],
         states,
@@ -45,6 +44,37 @@ describe("graph comparison", () => {
       }
     );
 
-    assert.equal(certificate.equivalent, false);
+    assert.equal(comparison.equivalent, false);
+  });
+
+  test("builds a proof-only certificate honestly", () => {
+    const machine = resolveMachine(agentRunsMachine, "pr");
+    const certificate = buildVerificationCertificate({
+      machine,
+      proofPassed: true,
+      graphEquivalenceAttempted: false,
+      proofOutput: "proof ok"
+    });
+
+    assert.equal(certificate.certificateVersion, 2);
+    assert.equal(certificate.proofPassed, true);
+    assert.equal(certificate.graphEquivalenceAttempted, false);
+    assert.equal(certificate.graphEquivalenceSpecification, undefined);
+    assert.equal(certificate.equivalent, null);
+    assert.equal(certificate.proofOutput, "proof ok");
+  });
+
+  test("builds a failed-proof certificate without equivalence", () => {
+    const machine = resolveMachine(agentRunsMachine, "pr");
+    const certificate = buildVerificationCertificate({
+      machine,
+      proofPassed: false,
+      graphEquivalenceAttempted: false,
+      proofOutput: "proof failed"
+    });
+
+    assert.equal(certificate.proofPassed, false);
+    assert.equal(certificate.graphEquivalenceAttempted, false);
+    assert.equal(certificate.equivalent, null);
   });
 });

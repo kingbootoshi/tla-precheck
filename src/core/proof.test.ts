@@ -4,12 +4,19 @@ import { describe, test } from "node:test";
 import {
   defineMachine,
   enumType,
+  ids,
   lit,
+  mapVar,
   modelValues,
   scalarVar,
   setVar
 } from "./dsl.js";
-import { assertWithinBudgets, estimateMachine, resolveMachine } from "./proof.js";
+import {
+  assertSafeForGraphEquivalence,
+  assertWithinBudgets,
+  estimateMachine,
+  resolveMachine
+} from "./proof.js";
 import { agentRunsMachine } from "../examples/agentRuns.machine.js";
 
 describe("proof tiers", () => {
@@ -82,6 +89,92 @@ describe("proof tiers", () => {
     assert.throws(
       () => resolveMachine(temporalMachine, "liveness"),
       /cannot combine symmetry reduction with temporal properties/
+    );
+  });
+
+  test("rejects graph equivalence when the resolved state estimate exceeds the hard cap", () => {
+    const machine = resolveMachine(
+      defineMachine({
+        version: 2,
+        moduleName: "HugeGraphEquivalenceStates",
+        variables: {
+          status: mapVar(
+            "Runs",
+            enumType(
+              "s1",
+              "s2",
+              "s3",
+              "s4",
+              "s5",
+              "s6",
+              "s7",
+              "s8",
+              "s9",
+              "s10",
+              "s11"
+            ),
+            lit("s1")
+          )
+        },
+        actions: {},
+        invariants: {},
+        proof: {
+          defaultTier: "pr",
+          tiers: {
+            pr: {
+              domains: {
+                Runs: ids({ prefix: "r", size: 5 })
+              }
+            }
+          }
+        }
+      }),
+      "pr"
+    );
+
+    assert.throws(
+      () => assertSafeForGraphEquivalence(machine),
+      /exceeds the hard graph-equivalence cap 100_000/
+    );
+  });
+
+  test("rejects graph equivalence when the resolved branching estimate exceeds the hard cap", () => {
+    const machine = resolveMachine(
+      defineMachine({
+        version: 2,
+        moduleName: "HugeGraphEquivalenceBranching",
+        variables: {
+          status: scalarVar(enumType("idle", "queued"), lit("idle"))
+        },
+        actions: {
+          branch: {
+            params: {
+              a: "Runs",
+              b: "Runs",
+              c: "Runs"
+            },
+            guard: lit(true),
+            updates: [setVar("status", lit("queued"))]
+          }
+        },
+        invariants: {},
+        proof: {
+          defaultTier: "pr",
+          tiers: {
+            pr: {
+              domains: {
+                Runs: ids({ prefix: "r", size: 22 })
+              }
+            }
+          }
+        }
+      }),
+      "pr"
+    );
+
+    assert.throws(
+      () => assertSafeForGraphEquivalence(machine),
+      /exceeds the hard graph-equivalence cap 10_000/
     );
   });
 });

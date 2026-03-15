@@ -91,4 +91,64 @@ describe("TLC DOT parsing", () => {
       temper: "calm"
     });
   });
+
+  test("throws when a state variable is missing", () => {
+    const machine = resolveMachine(dogMachine, "pr");
+    const source = String.raw`strict digraph DiskGraph {
+1 [label="mode = \"sleeping\"",style = filled];
+}`;
+
+    assert.throws(
+      () => parseTlcDot(machine, source),
+      /Missing state variables in TLC node label: temper/
+    );
+  });
+
+  test("throws when a state variable is duplicated", () => {
+    const machine = resolveMachine(dogMachine, "pr");
+    const source = String.raw`strict digraph DiskGraph {
+1 [label="mode = \"sleeping\"\nmode = \"awake\"\ntemper = \"calm\"",style = filled];
+}`;
+
+    assert.throws(
+      () => parseTlcDot(machine, source),
+      /Duplicate assignment in TLC node label: mode/
+    );
+  });
+
+  test("throws when a state variable is unexpected", () => {
+    const machine = resolveMachine(dogMachine, "pr");
+    const source = String.raw`strict digraph DiskGraph {
+1 [label="mode = \"sleeping\"\ntemper = \"calm\"\nghost = TRUE",style = filled];
+}`;
+
+    assert.throws(
+      () => parseTlcDot(machine, source),
+      /Unexpected state variables in TLC node label: ghost/
+    );
+  });
+
+  test("throws on malformed multiline continuation", () => {
+    const machine = resolveMachine(dogMachine, "pr");
+    const source = String.raw`strict digraph DiskGraph {
+1 [label="\"sleeping\"\ntemper = \"calm\"",style = filled];
+}`;
+
+    assert.throws(
+      () => parseTlcDot(machine, source),
+      /Malformed multiline continuation without an active assignment/
+    );
+  });
+
+  test("throws on trailing tokens after a parsed value", () => {
+    const machine = resolveMachine(dogMachine, "pr");
+    const source = String.raw`strict digraph DiskGraph {
+1 [label="mode = \"sleeping\" TRUE\ntemper = \"calm\"",style = filled];
+}`;
+
+    assert.throws(
+      () => parseTlcDot(machine, source),
+      /Unexpected trailing tokens in assignment line/
+    );
+  });
 });

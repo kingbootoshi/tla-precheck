@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { describe, test } from "node:test";
 
 import {
@@ -31,16 +31,8 @@ import {
   type MachineDef
 } from "../core/dsl.js";
 import { assertWithinBudgets, resolveMachine } from "../core/proof.js";
-import { exploreGraph } from "../core/interpreter.js";
-import { compareGraphs } from "../tla/compare.js";
-import { generateCfg, writeGeneratedMachine } from "../tla/generate.js";
-import { parseTlcDot } from "../tla/parseDot.js";
-
-interface CommandResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
+import { writeGeneratedMachine } from "../tla/generate.js";
+import { verifyGeneratedMachineArtifacts } from "../tla/verify.js";
 
 interface Rng {
   next(): number;
@@ -84,24 +76,6 @@ const createRng = (seed: number): Rng => {
     }
   };
 };
-
-const runCommand = (command: string, args: readonly string[], cwd: string): Promise<CommandResult> =>
-  new Promise((resolveCommand, reject) => {
-    const child = spawn(command, args, { cwd });
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk: Buffer | string) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk: Buffer | string) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", reject);
-    child.on("close", (exitCode) => {
-      resolveCommand({ exitCode: exitCode ?? -1, stdout, stderr });
-    });
-  });
 
 const shuffled = <T>(values: readonly T[], rng: Rng): T[] => {
   const out = [...values];
@@ -297,79 +271,32 @@ const verifyMachine = async (machine: MachineDef): Promise<void> => {
   const outputRoot = resolve(process.cwd(), ".generated-machines", "fuzz");
   await mkdir(outputRoot, { recursive: true });
   const generated = await writeGeneratedMachine(resolvedMachine, outputRoot);
-  const equivalenceCfgPath = resolve(
-    generated.outputDir,
-    `${resolvedMachine.moduleName}.equivalence.cfg`
-  );
-  const graphStem = resolve(generated.outputDir, resolvedMachine.moduleName);
-  const graphPath = `${graphStem}.dot`;
-  const metadir = resolve(generated.outputDir, ".tlc-meta");
-
-  await mkdir(metadir, { recursive: true });
-  await writeFile(
-    equivalenceCfgPath,
-    generateCfg(resolvedMachine, {
-      includeSymmetry: false,
-      specification: "EquivalenceSpec",
-      stringifyModelValues: true
-    }),
-    "utf8"
-  );
-
-  const tsGraph = exploreGraph(resolvedMachine);
-  const equivalenceRun = await runCommand(
-    "java",
-    [
-      "-jar",
-      tlaJar,
-      "-workers",
-      "1",
-      "-metadir",
-      metadir,
-      "-dump",
-      "dot,actionlabels",
-      graphStem,
-      "-config",
-      equivalenceCfgPath,
-      `${resolvedMachine.moduleName}.tla`
-    ],
-    generated.outputDir
-  );
-
-  const tlcOutput = [equivalenceRun.stdout.trim(), equivalenceRun.stderr.trim()]
-    .filter(Boolean)
-    .join("\n");
-  if (equivalenceRun.exitCode !== 0) {
-    throw new Error(
-      `TLC fuzz run failed for ${resolvedMachine.moduleName} with exit code ${equivalenceRun.exitCode}\n${tlcOutput}`
-    );
-  }
-
-  const dotSource = await readFile(graphPath, "utf8");
-  const actionLabels = JSON.parse(
-    await readFile(generated.actionLabelsPath, "utf8")
-  ) as Record<string, string>;
-  const tlcGraph = parseTlcDot(resolvedMachine, dotSource, actionLabels);
-  const certificate = compareGraphs(resolvedMachine, tsGraph, tlcGraph, tlcOutput);
+  const certificate = await verifyGeneratedMachineArtifacts(resolvedMachine, generated);
 
   assert.equal(
-    certificate.equivalent,
+    certificate.proofPassed,
     true,
     JSON.stringify(
       {
         machine: resolvedMachine.moduleName,
         tier: resolvedMachine.resolvedTier.name,
         outputDir: generated.outputDir,
+        proofPassed: certificate.proofPassed,
+        graphEquivalenceAttempted: certificate.graphEquivalenceAttempted,
+        equivalent: certificate.equivalent,
         tsStateCount: certificate.tsStateCount,
         tlcStateCount: certificate.tlcStateCount,
         tsEdgeCount: certificate.tsEdgeCount,
         tlcEdgeCount: certificate.tlcEdgeCount,
-        tlcOutput
+        proofOutput: certificate.proofOutput,
+        equivalenceOutput: certificate.equivalenceOutput
       },
       null,
       2
     )
   );
+  assert.equal(certificate.graphEquivalenceAttempted, true);
+  assert.equal(certificate.equivalent, true);
 };
 
 describe("compiler differential fuzzing", () => {

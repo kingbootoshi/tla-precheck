@@ -31,6 +31,12 @@ interface DomainReference {
   readonly name: string;
 }
 
+const MAX_PROOF_DOMAIN_SIZE = 100;
+const MAX_ACTION_PARAM_COUNT = 4;
+const MAX_EQUIVALENCE_STATES = 100_000;
+const MAX_EQUIVALENCE_BRANCHING = 10_000;
+const VALID_ADAPTER_KEY_SQL_TYPES = new Set(["text", "uuid", "bigint"]);
+
 const compareIssues = (left: ValidationIssue, right: ValidationIssue): number =>
   left.path.localeCompare(right.path) ||
   left.code.localeCompare(right.code) ||
@@ -103,6 +109,13 @@ const validatePrimitiveLiteral = (value: unknown, path: string, issues: Validati
     "Machine literals must be primitive values; arrays and objects are not allowed"
   );
 };
+
+const isPrimitiveLiteralExpr = (expr: Expr): boolean =>
+  expr.kind === "lit" &&
+  (expr.value === null ||
+    typeof expr.value === "string" ||
+    typeof expr.value === "number" ||
+    typeof expr.value === "boolean");
 
 const resolveScopedDomain = (scope: Scope, name: string): string | null => {
   if (hasOwn(scope.binders, name)) {
@@ -629,6 +642,14 @@ const validateTierDomains = (
           `proof.tiers.${tierName}.domains.${domainName}.prefix`,
           issues
         );
+        if (domain.size > MAX_PROOF_DOMAIN_SIZE) {
+          pushIssue(
+            issues,
+            "domain-size-cap-exceeded",
+            `proof.tiers.${tierName}.domains.${domainName}.size`,
+            `Proof domain ${domainName} in tier ${tierName} exceeds the hard size cap of ${MAX_PROOF_DOMAIN_SIZE}`
+          );
+        }
         if (domain.size < 1) {
           pushIssue(
             issues,
@@ -638,6 +659,14 @@ const validateTierDomains = (
           );
         }
       } else {
+        if (domain.values.length > MAX_PROOF_DOMAIN_SIZE) {
+          pushIssue(
+            issues,
+            "domain-size-cap-exceeded",
+            `proof.tiers.${tierName}.domains.${domainName}.values`,
+            `Proof domain ${domainName} in tier ${tierName} exceeds the hard size cap of ${MAX_PROOF_DOMAIN_SIZE}`
+          );
+        }
         if (domain.values.length === 0) {
           pushIssue(
             issues,
@@ -709,6 +738,32 @@ const validateTierDomains = (
       }
     }
 
+    const graphEquivalence = tier.graphEquivalence ?? true;
+    if (
+      graphEquivalence &&
+      tier.budgets?.maxEstimatedStates !== undefined &&
+      tier.budgets.maxEstimatedStates > MAX_EQUIVALENCE_STATES
+    ) {
+      pushIssue(
+        issues,
+        "equivalence-budget-cap-exceeded",
+        `proof.tiers.${tierName}.budgets.maxEstimatedStates`,
+        `Graph-equivalence tiers may not declare maxEstimatedStates above ${MAX_EQUIVALENCE_STATES}`
+      );
+    }
+    if (
+      graphEquivalence &&
+      tier.budgets?.maxEstimatedBranching !== undefined &&
+      tier.budgets.maxEstimatedBranching > MAX_EQUIVALENCE_BRANCHING
+    ) {
+      pushIssue(
+        issues,
+        "equivalence-branching-budget-cap-exceeded",
+        `proof.tiers.${tierName}.budgets.maxEstimatedBranching`,
+        `Graph-equivalence tiers may not declare maxEstimatedBranching above ${MAX_EQUIVALENCE_BRANCHING}`
+      );
+    }
+
     for (const invariantName of tier.invariants ?? Object.keys(machine.invariants)) {
       if (!knownInvariantNames.has(invariantName)) {
         pushIssue(
@@ -740,6 +795,175 @@ const validateTierDomains = (
         "symmetry-temporal-conflict",
         `proof.tiers.${tierName}.properties`,
         `Tier ${tierName} cannot combine symmetry reduction with temporal properties`
+      );
+    }
+  }
+};
+
+const validateRuntimeAdapterQuantifiers = (
+  expr: Expr,
+  path: string,
+  rowDomain: string,
+  issues: ValidationIssue[]
+): void => {
+  switch (expr.kind) {
+    case "lit":
+    case "param":
+    case "var":
+      return;
+    case "index":
+      validateRuntimeAdapterQuantifiers(expr.target, `${path}.target`, rowDomain, issues);
+      validateRuntimeAdapterQuantifiers(expr.key, `${path}.key`, rowDomain, issues);
+      return;
+    case "set":
+    case "and":
+    case "or":
+      for (const [index, value] of expr.values.entries()) {
+        validateRuntimeAdapterQuantifiers(value, `${path}.values[${index}]`, rowDomain, issues);
+      }
+      return;
+    case "not":
+      validateRuntimeAdapterQuantifiers(expr.value, `${path}.value`, rowDomain, issues);
+      return;
+    case "eq":
+    case "lte":
+      validateRuntimeAdapterQuantifiers(expr.left, `${path}.left`, rowDomain, issues);
+      validateRuntimeAdapterQuantifiers(expr.right, `${path}.right`, rowDomain, issues);
+      return;
+    case "in":
+      validateRuntimeAdapterQuantifiers(expr.elem, `${path}.elem`, rowDomain, issues);
+      validateRuntimeAdapterQuantifiers(expr.set, `${path}.set`, rowDomain, issues);
+      return;
+    case "count":
+    case "forall":
+      if (expr.domain !== rowDomain) {
+        pushIssue(
+          issues,
+          "adapter-unsupported-quantifier-domain",
+          `${path}.domain`,
+          `Runtime adapter quantifiers may only range over ${JSON.stringify(rowDomain)}`
+        );
+      }
+      validateRuntimeAdapterQuantifiers(expr.where, `${path}.where`, rowDomain, issues);
+      return;
+  }
+};
+
+const validateRuntimeAdapter = (machine: MachineDef, issues: ValidationIssue[]): void => {
+  const adapter = machine.metadata?.runtimeAdapter;
+  if (adapter === undefined) {
+    return;
+  }
+
+  const ownedTables = machine.metadata?.ownedTables ?? [];
+  if (!ownedTables.includes(adapter.table)) {
+    pushIssue(
+      issues,
+      "adapter-table-not-owned",
+      "metadata.runtimeAdapter.table",
+      `Runtime adapter table ${JSON.stringify(adapter.table)} must be declared in metadata.ownedTables`
+    );
+  }
+  if (ownedTables.length !== 1) {
+    pushIssue(
+      issues,
+      "adapter-single-table-required",
+      "metadata.ownedTables",
+      "Runtime adapter generation currently requires exactly one owned table"
+    );
+  }
+
+  const ownedColumns = machine.metadata?.ownedColumns?.[adapter.table];
+  if (ownedColumns === undefined) {
+    pushIssue(
+      issues,
+      "adapter-variable-column-missing",
+      `metadata.ownedColumns.${adapter.table}`,
+      `Owned columns for runtime adapter table ${JSON.stringify(adapter.table)} must be declared`
+    );
+  }
+
+  if (adapter.keyColumn.length === 0) {
+    pushIssue(
+      issues,
+      "adapter-invalid-key-column",
+      "metadata.runtimeAdapter.keyColumn",
+      "Runtime adapter keyColumn may not be empty"
+    );
+  }
+  if (!VALID_ADAPTER_KEY_SQL_TYPES.has(adapter.keySqlType)) {
+    pushIssue(
+      issues,
+      "adapter-invalid-key-sql-type",
+      "metadata.runtimeAdapter.keySqlType",
+      `Runtime adapter keySqlType ${JSON.stringify(adapter.keySqlType)} is not supported`
+    );
+  }
+
+  for (const [variableName, variable] of Object.entries(machine.variables)) {
+    if (variable.kind !== "map") {
+      pushIssue(
+        issues,
+        "adapter-map-only-machine-required",
+        `variables.${variableName}`,
+        "Runtime adapter generation currently supports map-only machines"
+      );
+      continue;
+    }
+    if (variable.domain !== adapter.rowDomain) {
+      pushIssue(
+        issues,
+        "adapter-row-domain-mismatch",
+        `variables.${variableName}.domain`,
+        `Runtime adapter variables must all use row domain ${JSON.stringify(adapter.rowDomain)}`
+      );
+    }
+    if (ownedColumns !== undefined && !ownedColumns.includes(variableName)) {
+      pushIssue(
+        issues,
+        "adapter-variable-column-missing",
+        `variables.${variableName}`,
+        `Variable ${JSON.stringify(variableName)} must map to a same-named owned column`
+      );
+    }
+    if (!isPrimitiveLiteralExpr(variable.initial)) {
+      pushIssue(
+        issues,
+        "adapter-nonliteral-initial",
+        `variables.${variableName}.initial`,
+        "Runtime adapter map variables must use primitive literal initial values"
+      );
+    }
+  }
+
+  for (const [actionName, action] of Object.entries(machine.actions)) {
+    validateRuntimeAdapterQuantifiers(
+      action.guard,
+      `actions.${actionName}.guard`,
+      adapter.rowDomain,
+      issues
+    );
+    for (const [updateIndex, update] of action.updates.entries()) {
+      if (update.kind === "setVar") {
+        validateRuntimeAdapterQuantifiers(
+          update.value,
+          `actions.${actionName}.updates[${updateIndex}].value`,
+          adapter.rowDomain,
+          issues
+        );
+        continue;
+      }
+      validateRuntimeAdapterQuantifiers(
+        update.key,
+        `actions.${actionName}.updates[${updateIndex}].key`,
+        adapter.rowDomain,
+        issues
+      );
+      validateRuntimeAdapterQuantifiers(
+        update.value,
+        `actions.${actionName}.updates[${updateIndex}].value`,
+        adapter.rowDomain,
+        issues
       );
     }
   }
@@ -781,8 +1005,18 @@ export const validateMachine = (machine: MachineDef): readonly ValidationIssue[]
   for (const [name, action] of Object.entries(machine.actions)) {
     validateIdentifierName(name, `actions.${name}`, issues);
     const actionParams: Record<string, string> = {};
+    const actionParamEntries = Object.entries(action.params);
 
-    for (const [paramName, domainName] of Object.entries(action.params)) {
+    if (actionParamEntries.length > MAX_ACTION_PARAM_COUNT) {
+      pushIssue(
+        issues,
+        "action-param-cap-exceeded",
+        `actions.${name}.params`,
+        `Action ${name} exceeds the hard parameter cap of ${MAX_ACTION_PARAM_COUNT}`
+      );
+    }
+
+    for (const [paramName, domainName] of actionParamEntries) {
       validateIdentifierName(paramName, `actions.${name}.params.${paramName}`, issues);
       validateDomainReference(
         domainName,
@@ -864,6 +1098,8 @@ export const validateMachine = (machine: MachineDef): readonly ValidationIssue[]
       );
     }
   }
+
+  validateRuntimeAdapter(machine, issues);
 
   const collectUserStringsFromExpr = (expr: Expr, into: Set<string>): void => {
     switch (expr.kind) {

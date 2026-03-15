@@ -1,7 +1,8 @@
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const isMachineModule = (path: string): boolean => path.endsWith(".machine.js");
+const isMachineModule = (path: string): boolean =>
+  path.endsWith(".machine.js") || path.endsWith(".machine.ts");
 
 const SKIPPED_DIRECTORIES = new Set(["node_modules", ".generated-machines"]);
 

@@ -66,7 +66,10 @@ export const lintNoRawMachineWrites = (
   const program = ts.createProgram(parsedConfig.fileNames, parsedConfig.options);
   const violations: LintViolation[] = [];
   const ownedTables = new Set(machine.metadata?.ownedTables ?? []);
-  const allowedWriters = machine.metadata?.allowedWriterModules ?? [];
+  const allowedWriters = new Set(machine.metadata?.allowedWriterModules ?? []);
+  if (machine.metadata?.runtimeAdapter !== undefined) {
+    allowedWriters.add(`src/generated/${machine.moduleName}.adapter.ts`);
+  }
   const ownedColumns = machine.metadata?.ownedColumns ?? {};
 
   for (const sourceFile of program.getSourceFiles()) {
@@ -75,7 +78,7 @@ export const lintNoRawMachineWrites = (
     }
 
     const normalizedPath = sourceFile.fileName.replace(/\\/g, "/");
-    const isAllowedWriter = allowedWriters.some((allowed) => normalizedPath.endsWith(allowed));
+    const isAllowedWriter = [...allowedWriters].some((allowed) => normalizedPath.endsWith(allowed));
 
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {

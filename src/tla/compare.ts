@@ -4,19 +4,37 @@ import type { ResolvedMachineDef } from "../core/dsl.js";
 import type { StateGraph } from "../core/interpreter.js";
 import type { ParsedTlcGraph } from "./parseDot.js";
 
-export interface VerificationCertificate {
-  certificateVersion: 1;
-  machine: string;
-  tier: string;
-  machineSha256: string;
+export interface GraphComparisonResult {
   graphHash: string;
   tsStateCount: number;
   tlcStateCount: number;
   tsEdgeCount: number;
   tlcEdgeCount: number;
   equivalent: boolean;
+}
+
+export interface VerificationCertificate {
+  certificateVersion: 2;
+  machine: string;
+  tier: string;
+  machineSha256: string;
   checkedAt: string;
-  tlcOutput?: string;
+  proofPassed: boolean;
+  proofSpecification: "Spec";
+  graphEquivalenceAttempted: boolean;
+  graphEquivalenceSpecification?: "EquivalenceSpec";
+  invariantsChecked: readonly string[];
+  propertiesChecked: readonly string[];
+  deadlockChecked: boolean;
+  symmetryUsedInProof: boolean;
+  equivalent: boolean | null;
+  graphHash?: string;
+  tsStateCount?: number;
+  tlcStateCount?: number;
+  tsEdgeCount?: number;
+  tlcEdgeCount?: number;
+  proofOutput?: string;
+  equivalenceOutput?: string;
 }
 
 const hash = (value: string): string => createHash("sha256").update(value).digest("hex");
@@ -27,11 +45,9 @@ const edgeSet = (graph: { edges: readonly { from: string; to: string; action: st
 const stateSet = (graph: { states: ReadonlyMap<string, unknown> }): Set<string> => new Set(graph.states.keys());
 
 export const compareGraphs = (
-  machine: ResolvedMachineDef,
   tsGraph: StateGraph,
-  tlcGraph: ParsedTlcGraph,
-  tlcOutput?: string
-): VerificationCertificate => {
+  tlcGraph: ParsedTlcGraph
+): GraphComparisonResult => {
   const tsStates = stateSet(tsGraph);
   const tlcStates = stateSet(tlcGraph);
   const tsEdges = edgeSet(tsGraph);
@@ -50,17 +66,55 @@ export const compareGraphs = (
   });
 
   return {
-    certificateVersion: 1,
-    machine: machine.moduleName,
-    tier: machine.resolvedTier.name,
-    machineSha256: hash(JSON.stringify(machine)),
     graphHash: hash(graphMaterial),
     tsStateCount: tsStates.size,
     tlcStateCount: tlcStates.size,
     tsEdgeCount: tsEdges.size,
     tlcEdgeCount: tlcEdges.size,
-    equivalent: equalStates && equalEdges && equalInitial,
+    equivalent: equalStates && equalEdges && equalInitial
+  };
+};
+
+interface BuildVerificationCertificateOptions {
+  machine: ResolvedMachineDef;
+  proofPassed: boolean;
+  graphEquivalenceAttempted: boolean;
+  graphComparison?: GraphComparisonResult;
+  proofOutput?: string;
+  equivalenceOutput?: string;
+}
+
+export const buildVerificationCertificate = ({
+  machine,
+  proofPassed,
+  graphEquivalenceAttempted,
+  graphComparison,
+  proofOutput,
+  equivalenceOutput
+}: BuildVerificationCertificateOptions): VerificationCertificate => {
+  const equivalent = graphComparison?.equivalent ?? null;
+
+  return {
+    certificateVersion: 2,
+    machine: machine.moduleName,
+    tier: machine.resolvedTier.name,
+    machineSha256: hash(JSON.stringify(machine)),
     checkedAt: new Date().toISOString(),
-    tlcOutput
+    proofPassed,
+    proofSpecification: "Spec",
+    graphEquivalenceAttempted,
+    graphEquivalenceSpecification: graphEquivalenceAttempted ? "EquivalenceSpec" : undefined,
+    invariantsChecked: machine.resolvedTier.invariants,
+    propertiesChecked: machine.resolvedTier.properties,
+    deadlockChecked: machine.resolvedTier.checks.deadlock,
+    symmetryUsedInProof: machine.resolvedTier.symmetryDomains.length > 0,
+    equivalent,
+    graphHash: graphComparison?.graphHash,
+    tsStateCount: graphComparison?.tsStateCount,
+    tlcStateCount: graphComparison?.tlcStateCount,
+    tsEdgeCount: graphComparison?.tsEdgeCount,
+    tlcEdgeCount: graphComparison?.tlcEdgeCount,
+    proofOutput,
+    equivalenceOutput
   };
 };

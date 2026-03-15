@@ -34,6 +34,11 @@ const formatBigInt = (value: bigint): string => {
   return source.replace(/\B(?=(\d{3})+(?!\d))/g, "_");
 };
 
+const parseFormattedBigInt = (value: string): bigint => BigInt(value.replaceAll("_", ""));
+
+export const HARD_TS_STATE_CAP = 100_000n;
+export const HARD_TS_BRANCHING_CAP = 10_000n;
+
 const renderDomainValues = (domain: ProofDomainDef): readonly string[] => {
   switch (domain.kind) {
     case "modelValues":
@@ -379,7 +384,8 @@ const resolveTier = (machine: MachineDef, tierName?: string): ResolvedProofTier 
       deadlock: tier.checks?.deadlock ?? true
     },
     invariants,
-    properties
+    properties,
+    graphEquivalence: tier.graphEquivalence ?? true
   };
 };
 
@@ -456,6 +462,26 @@ export const resolveMachine = (machine: MachineDef, tierName?: string): Resolved
 export const assertWithinBudgets = (estimate: MachineEstimate): void => {
   if (!estimate.withinBudget) {
     throw new Error(estimate.budgetViolations.join("\n"));
+  }
+};
+
+export const assertSafeForGraphEquivalence = (machine: ResolvedMachineDef): void => {
+  if (machine.resolvedTier.graphEquivalence === false) {
+    return;
+  }
+
+  const estimatedStates = parseFormattedBigInt(machine.estimate.totalStateCount);
+  if (estimatedStates > HARD_TS_STATE_CAP) {
+    throw new Error(
+      `Estimated state count ${machine.estimate.totalStateCount} exceeds the hard graph-equivalence cap ${formatBigInt(HARD_TS_STATE_CAP)}`
+    );
+  }
+
+  const estimatedBranching = parseFormattedBigInt(machine.estimate.totalBranching);
+  if (estimatedBranching > HARD_TS_BRANCHING_CAP) {
+    throw new Error(
+      `Estimated branching ${machine.estimate.totalBranching} exceeds the hard graph-equivalence cap ${formatBigInt(HARD_TS_BRANCHING_CAP)}`
+    );
   }
 };
 

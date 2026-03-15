@@ -135,6 +135,7 @@ export const agentRunsMachine = defineMachine({
         }
       },
       nightly: {
+        graphEquivalence: false,
         domains: {
           Users: modelValues("u", { size: 3, symmetry: true }),
           Runs: ids({ prefix: "r", size: 5 })
@@ -154,7 +155,13 @@ export const agentRunsMachine = defineMachine({
     ownedColumns: {
       agent_runs: ["status", "owner"]
     },
-    allowedWriterModules: ["src/generated/agentRuns.adapter.ts"],
+    runtimeAdapter: {
+      schema: "public",
+      table: "agent_runs",
+      rowDomain: "Runs",
+      keyColumn: "id",
+      keySqlType: "bigint"
+    },
     storageConstraints: [
       pgUniqueWhere({
         name: "agent_runs_one_active_per_user",

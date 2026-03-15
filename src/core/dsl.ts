@@ -138,6 +138,7 @@ export interface ProofTierDef {
   checks?: ProofTierChecks;
   invariants?: readonly string[];
   properties?: readonly string[];
+  graphEquivalence?: boolean;
 }
 
 export interface MachineProofDef {
@@ -145,11 +146,20 @@ export interface MachineProofDef {
   tiers: Record<string, ProofTierDef>;
 }
 
+export interface RuntimeAdapterDef {
+  schema?: string;
+  table: string;
+  rowDomain: string;
+  keyColumn: string;
+  keySqlType: "text" | "uuid" | "bigint";
+}
+
 export interface MachineMetadata {
   ownedTables?: readonly string[];
   ownedColumns?: Record<string, readonly string[]>;
   allowedWriterModules?: readonly string[];
   storageConstraints?: readonly StorageConstraintDef[];
+  runtimeAdapter?: RuntimeAdapterDef;
 }
 
 export interface MachineDef {
@@ -187,6 +197,7 @@ export interface ResolvedProofTier {
   checks: Required<ProofTierChecks>;
   invariants: readonly string[];
   properties: readonly string[];
+  graphEquivalence: boolean;
 }
 
 export interface ResolvedMachineDef extends MachineDef {

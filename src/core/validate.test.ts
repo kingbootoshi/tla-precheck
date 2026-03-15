@@ -8,6 +8,7 @@ import {
   domainType,
   enumType,
   eq,
+  forall,
   ids,
   index,
   lit,
@@ -171,5 +172,213 @@ describe("machine validation", () => {
       "pg-eq-null",
       "storage-column-not-owned"
     ]);
+  });
+
+  test("rejects oversized equivalence budgets", () => {
+    const machine = defineMachine({
+      ...agentRunsMachine,
+      proof: {
+        ...agentRunsMachine.proof,
+        tiers: {
+          ...agentRunsMachine.proof.tiers,
+          pr: {
+            ...agentRunsMachine.proof.tiers.pr,
+            graphEquivalence: true,
+            budgets: {
+              maxEstimatedStates: 100_001
+            }
+          }
+        }
+      }
+    });
+
+    assert.ok(issueCodes(machine).includes("equivalence-budget-cap-exceeded"));
+  });
+
+  test("allows large budgets on proof-only tiers", () => {
+    const machine = defineMachine({
+      ...agentRunsMachine,
+      proof: {
+        ...agentRunsMachine.proof,
+        tiers: {
+          ...agentRunsMachine.proof.tiers,
+          pr: {
+            ...agentRunsMachine.proof.tiers.pr,
+            graphEquivalence: false,
+            budgets: {
+              maxEstimatedStates: 10_000_000
+            }
+          }
+        }
+      }
+    });
+
+    assert.ok(!issueCodes(machine).includes("equivalence-budget-cap-exceeded"));
+  });
+
+  test("rejects proof domains larger than the hard cap", () => {
+    const machine = defineMachine({
+      ...agentRunsMachine,
+      proof: {
+        ...agentRunsMachine.proof,
+        tiers: {
+          ...agentRunsMachine.proof.tiers,
+          pr: {
+            ...agentRunsMachine.proof.tiers.pr,
+            domains: {
+              ...agentRunsMachine.proof.tiers.pr.domains,
+              Runs: ids({ prefix: "r", size: 101 })
+            }
+          }
+        }
+      }
+    });
+
+    assert.ok(issueCodes(machine).includes("domain-size-cap-exceeded"));
+  });
+
+  test("rejects actions with more than four parameters", () => {
+    const machine = defineMachine({
+      version: 2,
+      moduleName: "TooManyParams",
+      variables: {
+        status: scalarVar(enumType("idle", "queued"), lit("idle"))
+      },
+      actions: {
+        explode: {
+          params: { a: "Runs", b: "Runs", c: "Runs", d: "Runs", e: "Runs" },
+          guard: lit(true),
+          updates: [setVar("status", lit("queued"))]
+        }
+      },
+      invariants: {},
+      proof: {
+        defaultTier: "pr",
+        tiers: {
+          pr: {
+            domains: {
+              Runs: ids({ prefix: "r", size: 2 })
+            }
+          }
+        }
+      }
+    });
+
+    assert.ok(issueCodes(machine).includes("action-param-cap-exceeded"));
+  });
+
+  test("rejects runtime adapters on scalar machines", () => {
+    const machine = defineMachine({
+      version: 2,
+      moduleName: "ScalarAdapter",
+      variables: {
+        status: scalarVar(enumType("idle", "queued"), lit("idle"))
+      },
+      actions: {},
+      invariants: {},
+      proof: {
+        defaultTier: "pr",
+        tiers: {
+          pr: {
+            domains: {
+              Runs: ids({ prefix: "r", size: 2 })
+            }
+          }
+        }
+      },
+      metadata: {
+        ownedTables: ["agent_runs"],
+        ownedColumns: {
+          agent_runs: ["status"]
+        },
+        runtimeAdapter: {
+          table: "agent_runs",
+          rowDomain: "Runs",
+          keyColumn: "id",
+          keySqlType: "bigint"
+        }
+      }
+    });
+
+    assert.ok(issueCodes(machine).includes("adapter-map-only-machine-required"));
+  });
+
+  test("rejects runtime adapters with non-literal map initials", () => {
+    const machine = defineMachine({
+      version: 2,
+      moduleName: "NonLiteralAdapterInitial",
+      variables: {
+        status: mapVar("Runs", enumType("idle", "queued"), variable("status"))
+      },
+      actions: {},
+      invariants: {},
+      proof: {
+        defaultTier: "pr",
+        tiers: {
+          pr: {
+            domains: {
+              Runs: ids({ prefix: "r", size: 2 })
+            }
+          }
+        }
+      },
+      metadata: {
+        ownedTables: ["agent_runs"],
+        ownedColumns: {
+          agent_runs: ["status"]
+        },
+        runtimeAdapter: {
+          table: "agent_runs",
+          rowDomain: "Runs",
+          keyColumn: "id",
+          keySqlType: "bigint"
+        }
+      }
+    });
+
+    assert.ok(issueCodes(machine).includes("adapter-nonliteral-initial"));
+  });
+
+  test("rejects runtime adapter quantifiers over non-row domains in actions", () => {
+    const machine = defineMachine({
+      version: 2,
+      moduleName: "AdapterQuantifierDomain",
+      variables: {
+        owner: mapVar("Runs", optionType(domainType("Users")), lit(null))
+      },
+      actions: {
+        claim: {
+          params: { r: "Runs" },
+          guard: forall("Users", "u", eq(index(variable("owner"), param("r")), lit(null))),
+          updates: [setMap("owner", param("r"), lit(null))]
+        }
+      },
+      invariants: {},
+      proof: {
+        defaultTier: "pr",
+        tiers: {
+          pr: {
+            domains: {
+              Users: modelValues("u", { size: 2 }),
+              Runs: ids({ prefix: "r", size: 2 })
+            }
+          }
+        }
+      },
+      metadata: {
+        ownedTables: ["agent_runs"],
+        ownedColumns: {
+          agent_runs: ["owner"]
+        },
+        runtimeAdapter: {
+          table: "agent_runs",
+          rowDomain: "Runs",
+          keyColumn: "id",
+          keySqlType: "bigint"
+        }
+      }
+    });
+
+    assert.ok(issueCodes(machine).includes("adapter-unsupported-quantifier-domain"));
   });
 });
