@@ -1,0 +1,20 @@
+strict digraph DiskGraph {
+node [shape=box,style=rounded]
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+1715086110967514571 [label="/\\ mode = \"sleeping\"\n/\\ temper = \"calm\"",style = filled]
+1715086110967514571 -> -8614076629799857105 [label="wakeUp",color="black",fontcolor="black"];
+-8614076629799857105 [label="/\\ mode = \"awake\"\n/\\ temper = \"calm\"",tooltip="/\\ mode = \"awake\"\n/\\ temper = \"calm\""];
+-8614076629799857105 -> 1715086110967514571 [label="fallAsleep",color="black",fontcolor="black"];
+-8614076629799857105 -> -7816933026886916433 [label="serveFood",color="black",fontcolor="black"];
+-7816933026886916433 [label="/\\ mode = \"eating\"\n/\\ temper = \"calm\"",tooltip="/\\ mode = \"eating\"\n/\\ temper = \"calm\""];
+-8614076629799857105 -> 7524604176038438707 [label="annoy",color="black",fontcolor="black"];
+7524604176038438707 [label="/\\ mode = \"awake\"\n/\\ temper = \"angry\"",tooltip="/\\ mode = \"awake\"\n/\\ temper = \"angry\""];
+-7816933026886916433 -> -8614076629799857105 [label="finishEating",color="black",fontcolor="black"];
+7524604176038438707 -> -8614076629799857105 [label="calmDown",color="black",fontcolor="black"];
+{rank = same; 1715086110967514571;}
+{rank = same; -8614076629799857105;}
+{rank = same; -7816933026886916433;7524604176038438707;}
+}
+}

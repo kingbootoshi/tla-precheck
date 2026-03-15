@@ -1,0 +1,19 @@
+{
+  "name": "tla-machine-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun ./node_modules/typescript/lib/tsc.js -p tsconfig.json",
+    "typecheck": "bun ./node_modules/typescript/lib/tsc.js --noEmit",
+    "lint": "bun ./node_modules/typescript/lib/tsc.js --noEmit && bun src/cli/machine.ts lint src/examples/agentRuns.machine.ts --tsconfig tsconfig.json",
+    "test": "bun test src",
+    "estimate": "bun dist/cli/machine.js estimate dist/examples/agentRuns.machine.js --tier pr",
+    "generate": "bun dist/cli/machine.js generate dist/examples/agentRuns.machine.js --tier pr",
+    "verify": "bun dist/cli/machine.js verify dist/examples/agentRuns.machine.js --tier pr"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "@types/node": "^22.13.10"
+  }
+}
