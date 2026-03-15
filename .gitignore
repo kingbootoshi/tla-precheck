@@ -10,3 +10,4 @@ src/machine-adapters/
 *.fp
 video/
 docs/superpowers
+.cache/

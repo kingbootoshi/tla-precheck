@@ -27,7 +27,16 @@
     "agent-build": "bun dist/cli/machine.js agent-build dist/examples/agentRuns.machine.js"
   },
   "devDependencies": {
-    "typescript": "^5.8.3",
-    "@types/node": "^22.13.10"
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.435",
+    "@remotion/google-fonts": "^4.0.435",
+    "@remotion/media": "^4.0.435",
+    "@remotion/transitions": "^4.0.435",
+    "remotion": "^4.0.435"
   }
 }

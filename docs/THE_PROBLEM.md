@@ -78,28 +78,18 @@ When agents build and maintain systems autonomously:
 tla-precheck is the answer to "can you verify the agent knows what it's doing?" for
 state machine design. Not by asking the agent. By proving it mathematically.
 
-## The Guarantee (Current)
+## The Guarantee
 
 When the pipeline passes:
 1. The state machine design is correct (TLC exhaustively checked every reachable state)
 2. The runtime interpreter is equivalent to the proven design (bit-identical state graphs)
-3. The database constraints enforce critical invariants at the storage level
-4. The lint rule blocks raw writes to machine-owned tables in CI
+3. The generated adapter calls the proven interpreter inside a transaction - no hand-written
+   state mutation code, no hallucination surface
+4. The database constraints enforce critical invariants at the storage level
+5. The lint rule blocks raw writes to machine-owned tables in CI
 
-## The Gap (What's Missing)
-
-One thing: a generated runtime adapter per machine.
-
-The compiler proves the design correct and generates a verified interpreter. But the code
-that calls the interpreter and writes to the database is still hand-written. That's one
-remaining hallucination surface - an agent could write the glue code wrong.
-
-The fix: generate a typed adapter function per action from the same DSL. Instead of
-hand-writing the step/check/write logic, you import a generated function that is correct
-by construction. Zero hand-written state mutation code. Zero hallucination surface.
-
-With the adapter, the entire path from design to database is generated, verified, and
-enforced. The agent writes the DSL. Everything downstream is deterministic.
+The entire path from design to database is generated, verified, and enforced.
+The agent writes the DSL. Everything downstream is deterministic.
 
 ## The North Star
 
