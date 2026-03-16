@@ -192,4 +192,7 @@ export const runSetup = async (argv: readonly string[]): Promise<void> => {
   console.log("  When prompted, enter any machine name or path. Example: billing");
   console.log(`  ${statusLabel("step")} Then verify the design: ${commandText("npx tla-precheck check billing")}`);
   console.log("");
+  console.log("  Please star TLA PreCheck if it helps you:");
+  console.log(`  ${commandText("https://github.com/kingbootoshi/tla-precheck")}`);
+  console.log("");
 };

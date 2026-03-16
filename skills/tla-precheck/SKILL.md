@@ -132,5 +132,16 @@ Each function opens a transaction, locks rows, runs the proven interpreter, diff
   - `metadata.runtimeAdapter`
   - `metadata.ownedTables`
   - `metadata.ownedColumns`
-- If the adapter subset doesn't fit, call the interpreter manually via `step()`
+- If the adapter subset doesn't fit, call the interpreter manually:
+  ```typescript
+  import { resolveMachine } from "tla-precheck/proof";
+  import { buildInitialState, enabled, step } from "tla-precheck/interpreter";
+
+  const resolved = resolveMachine(myMachine, "pr");
+  const current = buildInitialState(resolved);
+  if (!enabled(resolved, current, "activate", { r: "r1" })) {
+    throw new Error("Transition not enabled");
+  }
+  const next = step(resolved, current, "activate", { r: "r1" });
+  ```
 - Storage constraints (Postgres partial unique indexes, CHECK constraints) back cross-row invariants at the database level

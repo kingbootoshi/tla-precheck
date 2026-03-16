@@ -261,8 +261,13 @@ There is also a destructive integration test that proves the partial unique inde
 Route all machine state mutations through the interpreter. Never write to machine-owned state directly.
 
 ```typescript
+import agentRunsMachine from "../src/examples/agentRuns.machine.js";
+import { resolveMachine } from "tla-precheck/proof";
+import { step } from "tla-precheck/interpreter";
+
+const resolved = resolveMachine(agentRunsMachine, "pr");
 const current = await repo.loadMachineState(userId);
-const next = step(agentRunsMachine, current, "cancel", { r: runId });
+const next = step(resolved, current, "cancel", { r: runId });
 if (next === null) throw new Error("Transition not enabled");
 await repo.commitMachineState(current, next, { action: "cancel", userId, runId });
 ```

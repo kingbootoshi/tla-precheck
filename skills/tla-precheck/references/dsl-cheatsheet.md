@@ -103,6 +103,24 @@ export default myMachine;
 
 `check` does not require this metadata. `build` does.
 
+## Manual Interpreter Usage
+
+```typescript
+import myMachine from "./my.machine.js";
+import { resolveMachine } from "tla-precheck/proof";
+import { buildInitialState, enabled, step } from "tla-precheck/interpreter";
+
+const resolved = resolveMachine(myMachine, "pr");
+let state = buildInitialState(resolved);
+
+if (enabled(resolved, state, "activate", { r: "r1" })) {
+  const next = step(resolved, state, "activate", { r: "r1" });
+  if (next !== null) {
+    state = next;
+  }
+}
+```
+
 ## Hard Limits
 
 - Graph-equivalence tiers: max 100,000 estimated states, max 10,000 branching

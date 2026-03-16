@@ -8,9 +8,10 @@
   <a href="#the-problem">The Problem</a> -
   <a href="#how-it-works">How It Works</a> -
   <a href="#before-and-after">Before & After</a> -
+  <a href="#quickstart">Quickstart</a> -
   <a href="#install">Install</a> -
   <a href="#the-design-loop">The Design Loop</a> -
-  <a href="docs/TECHNICAL-REFERENCE.md">Technical Reference</a>
+  <a href="docs/TECHNICAL_REFERENCE.md">Technical Reference</a>
 </p>
 
 ---
@@ -152,6 +153,67 @@ When TLA PreCheck passes:
 4. **Raw writes are blocked** - lint rule catches any code that bypasses the generated
    adapter and writes directly to machine-owned tables.
 
+## Quickstart
+
+If you are trying TLA PreCheck from GitHub, you do not need to install it globally first.
+
+### 1. Prepare your machine
+
+```bash
+npx tla-precheck setup
+npx tla-precheck doctor
+```
+
+`setup` installs the agent skill and downloads the pinned TLC jar into `~/.tla-precheck`.
+`doctor` confirms Java, TLC, and skill installation.
+
+### 2. Start in your codebase
+
+```bash
+npx tla-precheck init
+```
+
+That prompts for a machine name or path and creates `<name>.machine.ts`.
+
+### 3. Run the design loop
+
+```bash
+npx tla-precheck check billing
+```
+
+This validates the machine, estimates the state space, runs TLC, and checks equivalence
+between the generated TLA+ model and the TypeScript interpreter.
+
+### 4. Generate runtime artifacts
+
+```bash
+npx tla-precheck build billing
+```
+
+This reruns proof and then generates:
+- TLA+ artifacts
+- Postgres storage contract
+- typed adapter functions in `src/machine-adapters/`
+
+`build` requires machine metadata for the adapter path:
+- `metadata.runtimeAdapter`
+- `metadata.ownedTables`
+- `metadata.ownedColumns`
+
+### 5. Agent-first flow
+
+After `setup`, you can also invoke the installed skill in Claude Code or Codex:
+
+```text
+/tla-precheck
+```
+
+The intended workflow is:
+- let the agent write or refine the `.machine.ts`
+- run `npx tla-precheck check <machine>`
+- fix the design if proof fails
+- run `npx tla-precheck build <machine>` once the machine is adapter-capable
+
 ## Install
 
 ```bash
@@ -178,10 +240,10 @@ be fundamentally broken.
 ```
 1. Identify a critical state flow (billing, subscriptions, agent runs...)
 2. Write the machine in the DSL
-3. Run: `npx tla-precheck check src/machines/agentRuns.machine.ts`
+3. Run: `npx tla-precheck check agent-runs`
 4. If proof or equivalence fails, fix the DESIGN, not the code
 5. Loop until: `proofPassed: true` and `equivalent: true`
-6. Run: `npx tla-precheck build src/machines/agentRuns.machine.ts`
+6. Run: `npx tla-precheck build agent-runs`
 7. Import generated adapter functions from `src/machine-adapters` into your codebase
 8. Done. Zero hallucination surface. Proven correct by construction.
 ```
@@ -212,6 +274,28 @@ bunx tla-precheck verify-db agent-runs
 - `metadata.ownedColumns`
 
 Without that metadata, `check` can still pass while `build` stops at adapter generation.
+
+If you are not using the generated adapter, the manual interpreter path is:
+
+```typescript
+import { resolveMachine } from "tla-precheck/proof";
+import { buildInitialState, enabled, step } from "tla-precheck/interpreter";
+import myMachine from "./my.machine.js";
+
+const resolved = resolveMachine(myMachine, "pr");
+let state = buildInitialState(resolved);
+
+if (!enabled(resolved, state, "activate", { r: "r1" })) {
+  throw new Error("Transition not enabled");
+}
+
+const next = step(resolved, state, "activate", { r: "r1" });
+if (next === null) {
+  throw new Error("Transition not enabled");
+}
+
+state = next;
+```
 
 For repo contributors, the Bun scripts remain available:
 
@@ -312,9 +396,9 @@ The repo includes two example machines:
 
 ## Further Reading
 
-- [Technical Reference](docs/TECHNICAL-REFERENCE.md) - full DSL reference, CI integration,
+- [Technical Reference](docs/TECHNICAL_REFERENCE.md) - full DSL reference, CI integration,
   proof tiers, storage backend, testing strategy
-- [Problem Statement](PROBLEM.md) - why this exists, the north star
+- [Problem Statement](docs/THE_PROBLEM.md) - why this exists, the north star
 
 ---
 

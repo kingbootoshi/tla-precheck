@@ -69,6 +69,24 @@ await activate(sql, { r: runId });
 await cancel(sql, { r: runId });
 ```
 
+If the machine does not fit the adapter subset, use the interpreter directly:
+
+```typescript
+import { resolveMachine } from "tla-precheck/proof";
+import { buildInitialState, enabled, step } from "tla-precheck/interpreter";
+import billingMachine from "./billing.machine.js";
+
+const resolved = resolveMachine(billingMachine, "pr");
+let state = buildInitialState(resolved);
+
+if (enabled(resolved, state, "submit", { o: "o1" })) {
+  const next = step(resolved, state, "submit", { o: "o1" });
+  if (next !== null) {
+    state = next;
+  }
+}
+```
+
 ## Advanced Commands
 
 ### Fast estimation (no Java needed)
