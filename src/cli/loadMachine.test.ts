@@ -17,7 +17,7 @@ const writeFixtureMachine = async (): Promise<string> => {
   const machinePath = resolve(FIXTURE_ROOT, "loadMachineFixture.machine.ts");
   await writeFile(
     machinePath,
-    `import { defineMachine, enumType, eq, lit, scalarVar, setVar, variable } from "tla-precheck";
+    `import { defineMachine, enumType, eq, lit, scalarVar, setVar, variable } from "../../src/core/dsl.js";
 import { ACTIVE } from "./loadMachineFixtureValues.js";
 
 const status = variable("status");
