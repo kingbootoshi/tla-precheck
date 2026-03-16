@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 import { detectJava, resolveTlcJarPath } from "../core/tooling.js";
 import { heading, statusLabel } from "./ui.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 interface DoctorCheck {
   name: string;
@@ -52,7 +53,7 @@ const checkAgentSkill = (name: string, baseDir: string, skillDir: string): Docto
 };
 
 export const runDoctor = async (): Promise<void> => {
-  console.log(`\n${heading("TLA PreCheck Doctor")}\n`);
+  console.log(`\n${heading(`TLA PreCheck Doctor v${PACKAGE_VERSION}`)}\n`);
 
   const home = homedir();
   const checks: DoctorCheck[] = [

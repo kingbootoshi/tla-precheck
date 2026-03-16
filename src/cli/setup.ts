@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { detectJava, resolveTlcJarPath, TLA_CACHE_DIR, TLA_CACHE_PATH } from "../core/tooling.js";
 import { commandText, heading, statusLabel } from "./ui.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -78,7 +79,7 @@ export const runSetup = async (argv: readonly string[]): Promise<void> => {
   const claudeOnly = flags.has("--claude");
   const codexOnly = flags.has("--codex");
 
-  console.log(`\n${heading("TLA PreCheck Setup")}\n`);
+  console.log(`\n${heading(`TLA PreCheck Setup v${PACKAGE_VERSION}`)}\n`);
 
   // 1. Check environment
   console.log(heading("Environment"));

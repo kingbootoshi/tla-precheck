@@ -26,6 +26,7 @@ import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
 import { loadMachine } from "./loadMachine.js";
 import { runSetup } from "./setup.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 interface ParsedArgs {
   command:
@@ -518,6 +519,10 @@ const runAgentBuild = async (
 export async function main(): Promise<void> {
   const command = process.argv[2];
 
+  if (command === "version" || command === "--version" || command === "-v") {
+    console.log(PACKAGE_VERSION);
+    return;
+  }
   if (command === "setup") {
     await runSetup(process.argv.slice(3));
     return;
@@ -532,13 +537,14 @@ export async function main(): Promise<void> {
   }
   if (command === undefined || command === "help" || command === "--help" || command === "-h") {
     console.log(`
-TLA PreCheck - Mathematically verified state machines
+TLA PreCheck v${PACKAGE_VERSION} - Mathematically verified state machines
 
   setup                      Install agent skills and TLC
   doctor                     Check environment
-  init <name>                Scaffold a new machine
+  init [name]                Scaffold a new machine
   check <machine>            Validate + estimate + verify (.machine.ts or .machine.js)
   build <machine>            Check + generate adapter when metadata.runtimeAdapter is declared
+  version                    Print the installed tla-precheck version
 
 Advanced:
   estimate <machine>         Fast budget check (no Java needed)
