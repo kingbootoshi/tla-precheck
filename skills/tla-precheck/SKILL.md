@@ -34,13 +34,13 @@ Think in TLA+, write in TypeScript.
 
 ```bash
 # 1. Start a new machine
-npx tla-precheck init <name>
+npx tla-precheck init
 
 # 2. Design loop - run until it passes
-npx tla-precheck check <machine.ts>
+npx tla-precheck check <machine>
 
-# 3. Ship it - generates adapter + all artifacts
-npx tla-precheck build <machine.ts>
+# 3. Ship it - generates adapter + all artifacts for adapter-capable machines
+npx tla-precheck build <machine>
 ```
 
 **The design loop:**
@@ -49,12 +49,13 @@ npx tla-precheck build <machine.ts>
 3. If the model checker finds a bug (invariant violation, stuck state), it tells you exactly what sequence of events caused it
 4. Fix the DSL - not a code patch, a design fix
 5. Repeat until `check` passes
-6. Run `build` to generate the adapter and all artifacts
+6. If the machine declares `metadata.runtimeAdapter`, `metadata.ownedTables`, and `metadata.ownedColumns`, run `build` to generate the adapter and all artifacts
 7. Import the generated adapter functions into your codebase
 
 ## DSL Quick Reference
 
 Machines have **variables**, **actions**, **invariants**, and **proof tiers**.
+If you want `build` to generate a database adapter, the machine also needs adapter metadata.
 
 ### Variables
 ```typescript
@@ -113,7 +114,7 @@ For the complete CLI workflow, see `references/cli-workflow.md`.
 The machine is verified when:
 1. `check` passes - TLC exhaustively explored every reachable state
 2. The equivalence certificate says `equivalent: true`
-3. `build` succeeds - adapter generated from the proven machine
+3. `build` succeeds - adapter generated from the proven machine when adapter metadata is declared
 
 After `build`, your codebase imports typed functions:
 ```typescript
@@ -127,5 +128,9 @@ Each function opens a transaction, locks rows, runs the proven interpreter, diff
 
 - The interpreter IS the runtime semantics - not an advisory check
 - The generated adapter is the preferred mutation path when the machine fits the adapter subset (single owned table, all mapVars, one row domain)
+- `build` requires explicit database mapping metadata:
+  - `metadata.runtimeAdapter`
+  - `metadata.ownedTables`
+  - `metadata.ownedColumns`
 - If the adapter subset doesn't fit, call the interpreter manually via `step()`
 - Storage constraints (Postgres partial unique indexes, CHECK constraints) back cross-row invariants at the database level

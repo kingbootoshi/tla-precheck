@@ -116,7 +116,7 @@ export const runInit = async (nameArg: string | undefined): Promise<void> => {
   console.log("  1. Edit the machine - add your states, transitions, and invariants");
   console.log(`  2. Run: ${commandText(`npx tla-precheck check ${normalized}`)}`);
   console.log("  3. Fix any design issues the model checker finds");
-  console.log("  4. Add runtimeAdapter metadata if you want a generated adapter");
+  console.log("  4. Add metadata.runtimeAdapter plus ownedTables and ownedColumns if you want build to generate a database adapter");
   console.log(`  5. Run: ${commandText(`npx tla-precheck build ${normalized}`)}`);
   console.log("");
 };

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import type { ActionDef, Expr, MachineDef, Update, VariableDef } from "../core/dsl.js";
 import { assertValidMachine } from "../core/validate.js";
@@ -12,11 +12,38 @@ export interface GeneratedAdapterPaths {
 
 const DEFAULT_ADAPTER_OUTPUT_ROOT = resolve(process.cwd(), "src/machine-adapters");
 
-const toImportPath = (fromFile: string, targetFile: string): string => {
-  const relativePath = relative(dirname(fromFile), targetFile).replaceAll("\\", "/");
-  const withPrefix = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
-  return withPrefix.replace(/\.ts$/, ".js");
+const renderRuntimeAdapterExample = (machine: MachineDef): string => {
+  const firstVariableName = Object.keys(machine.variables)[0] ?? "status";
+  const firstMapVariable = Object.values(machine.variables).find(
+    (variable): variable is VariableDef & { kind: "map" } => variable.kind === "map"
+  );
+  const rowDomain = firstMapVariable?.domain ?? "Rows";
+  const tableName = `${machine.moduleName.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()}s`;
+
+  return `metadata: {
+  ownedTables: ["${tableName}"],
+  ownedColumns: {
+    ${tableName}: ["${firstVariableName}"]
+  },
+  runtimeAdapter: {
+    schema: "public",
+    table: "${tableName}",
+    rowDomain: "${rowDomain}",
+    keyColumn: "id",
+    keySqlType: "text"
+  }
+}`;
 };
+
+const missingRuntimeAdapterError = (machine: MachineDef): Error =>
+  new Error(
+    [
+      `[build-requires-runtime-adapter] Machine ${machine.moduleName} does not declare metadata.runtimeAdapter.`,
+      "check proves the machine design. build also generates a database adapter, so it needs table mapping metadata.",
+      "Add a metadata block like:",
+      renderRuntimeAdapterExample(machine)
+    ].join("\n\n")
+  );
 
 const toPascalCase = (value: string): string => value[0]!.toUpperCase() + value.slice(1);
 
@@ -187,13 +214,10 @@ export const renderAdapterModule = (machine: MachineDef): string => {
   assertValidMachine(machine);
   const runtimeAdapter = machine.metadata?.runtimeAdapter;
   if (runtimeAdapter === undefined) {
-    throw new Error(`Machine ${machine.moduleName} does not declare metadata.runtimeAdapter`);
+    throw missingRuntimeAdapterError(machine);
   }
 
   const outputRoot = DEFAULT_ADAPTER_OUTPUT_ROOT;
-  const adapterPath = join(outputRoot, `${machine.moduleName}.adapter.ts`);
-  const dslImportPath = toImportPath(adapterPath, resolve(process.cwd(), "src/core/dsl.ts"));
-  const runtimeImportPath = toImportPath(adapterPath, resolve(process.cwd(), "src/db/adapterRuntime.ts"));
   const machineJson = prettyStableJson(machine);
   const machineSha256 = createHash("sha256").update(stringifyJson(machine)).digest("hex");
   const variableColumns = mapVariableColumns(machine);
@@ -229,13 +253,13 @@ export const renderAdapterModule = (machine: MachineDef): string => {
     `// machine: ${machine.moduleName}`,
     `// machineSha256: ${machineSha256}`,
     "",
-    `import type { MachineDef } from "${dslImportPath}";`,
+    'import type { MachineDef } from "tla-precheck";',
     "import {",
     "  applyGeneratedAction,",
     "  type AdapterSqlClient,",
     "  type AdapterWriteResult,",
     "  type GeneratedAdapterSpec",
-    `} from "${runtimeImportPath}";`,
+    '} from "tla-precheck/db/adapterRuntime";',
     "",
     `const machine = ${machineJson} as const satisfies MachineDef;`,
     "",
@@ -264,7 +288,7 @@ export const writeGeneratedAdapter = async (
   assertValidMachine(machine);
   const runtimeAdapter = machine.metadata?.runtimeAdapter;
   if (runtimeAdapter === undefined) {
-    throw new Error(`Machine ${machine.moduleName} does not declare metadata.runtimeAdapter`);
+    throw missingRuntimeAdapterError(machine);
   }
   await mkdir(outputRoot, { recursive: true });
   const adapterPath = join(outputRoot, `${machine.moduleName}.adapter.ts`);

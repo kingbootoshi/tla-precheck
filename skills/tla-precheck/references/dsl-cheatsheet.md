@@ -84,7 +84,7 @@ export const myMachine = defineMachine({
     defaultTier: "pr",
     tiers: { /* ... */ }
   },
-  // Optional: metadata for adapter generation and storage constraints
+  // Required for `build` if you want generated adapter output
   metadata: {
     ownedTables: ["my_table"],
     ownedColumns: { my_table: ["status", "owner"] },
@@ -100,6 +100,8 @@ export const myMachine = defineMachine({
 
 export default myMachine;
 ```
+
+`check` does not require this metadata. `build` does.
 
 ## Hard Limits
 

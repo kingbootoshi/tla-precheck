@@ -193,18 +193,25 @@ possible future of the system and tells the agent exactly where things break.
 
 ```bash
 # Scaffold a machine
-npx tla-precheck init src/machines/agent-runs
+npx tla-precheck init
 
 # Validate + estimate + verify directly from the source .machine.ts file
-npx tla-precheck check src/machines/agent-runs.machine.ts
+npx tla-precheck check agent-runs
 
-# Verify and generate the runtime adapter for machines in the adapter subset
-npx tla-precheck build src/machines/agent-runs.machine.ts
+# Verify and generate the runtime adapter for machines that declare adapter metadata
+npx tla-precheck build agent-runs
 
 # Verify a live Postgres schema against generated constraints
 # verify-db currently requires Bun because it uses Bun.SQL
-bunx tla-precheck verify-db dist/machines/agent-runs.machine.js
+bunx tla-precheck verify-db agent-runs
 ```
+
+`build` needs explicit database mapping metadata in the machine:
+- `metadata.runtimeAdapter`
+- `metadata.ownedTables`
+- `metadata.ownedColumns`
+
+Without that metadata, `check` can still pass while `build` stops at adapter generation.
 
 For repo contributors, the Bun scripts remain available:
 

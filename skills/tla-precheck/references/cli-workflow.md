@@ -15,8 +15,8 @@ Requirements: Node 18+ or Bun 1.0+. Java 17+ for TLC model checking.
 ### 1. Scaffold a new machine
 
 ```bash
-npx tla-precheck init billing
-# Creates billing.machine.ts with a starter template
+npx tla-precheck init
+# Prompts for a machine name or path, then creates <name>.machine.ts
 ```
 
 ### 2. Edit the machine
@@ -30,7 +30,7 @@ Open the `.machine.ts` file. Define:
 ### 3. Check the design
 
 ```bash
-npx tla-precheck check billing.machine.ts
+npx tla-precheck check billing
 ```
 
 This runs three steps:
@@ -43,13 +43,20 @@ If TLC finds an invariant violation, it outputs the exact sequence of transition
 ### 4. Build artifacts
 
 ```bash
-npx tla-precheck build billing.machine.ts
+npx tla-precheck build billing
 ```
 
 This runs `check` first, then generates:
 - TLA+ spec and config (for inspection)
 - Postgres storage contract (DDL)
 - Typed adapter module at `src/machine-adapters/Billing.adapter.ts`
+
+`build` requires explicit database mapping metadata in the machine:
+- `metadata.runtimeAdapter`
+- `metadata.ownedTables`
+- `metadata.ownedColumns`
+
+Without that metadata, `check` can still pass but `build` will stop at adapter generation and show the metadata shape to add.
 
 ### 5. Import and use
 
@@ -82,7 +89,7 @@ npx tla-precheck generate-db billing.machine.ts
 
 ### Verify live database schema
 ```bash
-npx tla-precheck verify-db billing.machine.ts
+bunx tla-precheck verify-db billing
 ```
 Requires `DATABASE_URL` env var. Bun runtime only.
 
@@ -94,7 +101,7 @@ npx tla-precheck verify-all dist/ --all-tiers
 
 ### Lint for raw writes
 ```bash
-npx tla-precheck lint billing.machine.ts
+npx tla-precheck lint billing
 npx tla-precheck lint-all src/
 ```
 

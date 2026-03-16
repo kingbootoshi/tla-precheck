@@ -19,6 +19,32 @@ import {
 } from "../core/dsl.js";
 import { writeGeneratedAdapter } from "./generateAdapter.js";
 
+const machineWithoutAdapterMetadata = defineMachine({
+  version: 2,
+  moduleName: "Billing",
+  variables: {
+    status: mapVar("Orders", enumType("idle", "processing"), lit("idle"))
+  },
+  actions: {
+    submit: {
+      params: { o: "Orders" },
+      guard: eq(index(variable("status"), param("o")), lit("idle")),
+      updates: [setMap("status", param("o"), lit("processing"))]
+    }
+  },
+  invariants: {},
+  proof: {
+    defaultTier: "pr",
+    tiers: {
+      pr: {
+        domains: {
+          Orders: ids({ prefix: "o", size: 2 })
+        }
+      }
+    }
+  }
+});
+
 const adapterMachine = defineMachine({
   version: 2,
   moduleName: "AgentRuns",
@@ -102,10 +128,26 @@ describe("adapter generation", () => {
       await writeGeneratedAdapter(adapterMachine);
       const source = await readFile(adapterPath, "utf8");
 
-      assert.match(source, /from "\.\.\/db\/adapterRuntime\.js"/);
+      assert.match(source, /from "tla-precheck\/db\/adapterRuntime"/);
+      assert.match(source, /import type \{ MachineDef \} from "tla-precheck"/);
       assert.doesNotMatch(source, /examples\/agentRuns\.machine/);
     } finally {
       await rm(adapterPath, { force: true });
     }
+  });
+
+  test("explains the metadata fix when adapter generation is requested without runtime metadata", async () => {
+    await assert.rejects(
+      () => writeGeneratedAdapter(machineWithoutAdapterMetadata),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /\[build-requires-runtime-adapter\]/);
+        assert.match(error.message, /metadata\.runtimeAdapter/);
+        assert.match(error.message, /ownedTables/);
+        assert.match(error.message, /ownedColumns/);
+        assert.match(error.message, /table: "billings"/);
+        return true;
+      }
+    );
   });
 });

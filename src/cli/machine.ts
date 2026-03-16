@@ -68,6 +68,9 @@ interface AgentBuildOutput {
   errors: readonly string[];
 }
 
+const isRuntimeAdapterBuildError = (message: string): boolean =>
+  message.startsWith("[build-requires-runtime-adapter]");
+
 const parseArgs = (argv: readonly string[]): ParsedArgs => {
   const command = argv[2];
   const modulePath = argv[3];
@@ -488,7 +491,13 @@ const runAgentBuild = async (
     const adapter = await writeGeneratedAdapter(machine);
     adapterPath = adapter.adapterPath;
   } catch (error) {
-    errors.push(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    errors.push(message);
+    if (certificate?.proofPassed === true && isRuntimeAdapterBuildError(message)) {
+      errors.push(
+        "build reached adapter generation after proof succeeded. Update the client machine definition with metadata.runtimeAdapter, metadata.ownedTables, and metadata.ownedColumns."
+      );
+    }
     process.exitCode = 1;
   }
 
@@ -529,7 +538,7 @@ TLA PreCheck - Mathematically verified state machines
   doctor                     Check environment
   init <name>                Scaffold a new machine
   check <machine>            Validate + estimate + verify (.machine.ts or .machine.js)
-  build <machine>            Check + generate adapter for adapter-capable machines
+  build <machine>            Check + generate adapter when metadata.runtimeAdapter is declared
 
 Advanced:
   estimate <machine>         Fast budget check (no Java needed)
