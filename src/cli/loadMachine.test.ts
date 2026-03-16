@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, test } from "node:test";
 
-import { loadMachine } from "./loadMachine.js";
+import { loadMachine, resolveMachineModulePath } from "./loadMachine.js";
 
 const FIXTURE_ROOT = resolve(process.cwd(), ".generated-machines", "test-source-machines");
 const TSCONFIG_PATH = resolve(process.cwd(), "tsconfig.json");
@@ -64,5 +64,12 @@ describe("loadMachine", () => {
     assert.equal(machine.moduleName, "LoadMachineFixture");
     assert.notEqual(machine.actions.activate, undefined);
     assert.equal(machine.variables.status.kind, "scalar");
+  });
+
+  test("resolves bare machine names to .machine.ts files", async () => {
+    const machinePath = await writeFixtureMachine();
+    const bareModulePath = machinePath.replace(/\.machine\.ts$/, "");
+
+    assert.equal(resolveMachineModulePath(bareModulePath), machinePath);
   });
 });

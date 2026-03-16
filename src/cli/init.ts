@@ -1,6 +1,9 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
+
+import { commandText, heading, statusLabel } from "./ui.js";
 
 const toPascalCase = (value: string): string =>
   value
@@ -74,7 +77,17 @@ export default ${camelName}Machine;
 };
 
 export const runInit = async (nameArg: string | undefined): Promise<void> => {
-  if (nameArg === undefined || nameArg.length === 0) {
+  let requestedName = nameArg;
+  if (requestedName === undefined || requestedName.length === 0) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await rl.question(
+      `\n${heading("TLA PreCheck Init")}\n\nMachine name or path ${commandText("(example: billing or src/machines/subscription)")} `
+    );
+    rl.close();
+    requestedName = answer.trim();
+  }
+
+  if (requestedName.length === 0) {
     console.error("Usage: tla-precheck init <name>");
     console.error("Example: tla-precheck init billing");
     console.error("         tla-precheck init src/machines/subscription");
@@ -82,7 +95,7 @@ export const runInit = async (nameArg: string | undefined): Promise<void> => {
     return;
   }
 
-  const normalized = nameArg.replace(/\.machine\.ts$/, "");
+  const normalized = requestedName.replace(/\.machine\.ts$/, "");
   const filePath = resolve(process.cwd(), `${normalized}.machine.ts`);
   const machineName = basename(normalized);
 
@@ -96,13 +109,14 @@ export const runInit = async (nameArg: string | undefined): Promise<void> => {
   await mkdir(dir, { recursive: true });
   await writeFile(filePath, generateTemplate(machineName), "utf8");
 
-  console.log(`Created ${filePath}`);
+  console.log(`\n${heading("Machine created")}`);
+  console.log(`  ${statusLabel("ok")} ${filePath}`);
   console.log("");
-  console.log("Next steps:");
+  console.log(heading("Next steps"));
   console.log("  1. Edit the machine - add your states, transitions, and invariants");
-  console.log(`  2. Run: npx tla-precheck check ${normalized}.machine.ts`);
+  console.log(`  2. Run: ${commandText(`npx tla-precheck check ${normalized}`)}`);
   console.log("  3. Fix any design issues the model checker finds");
   console.log("  4. Add runtimeAdapter metadata if you want a generated adapter");
-  console.log(`  5. Run: npx tla-precheck build ${normalized}.machine.ts`);
+  console.log(`  5. Run: ${commandText(`npx tla-precheck build ${normalized}`)}`);
   console.log("");
 };

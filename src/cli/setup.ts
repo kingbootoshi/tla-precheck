@@ -7,6 +7,7 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 import { detectJava, resolveTlcJarPath, TLA_CACHE_DIR, TLA_CACHE_PATH } from "../core/tooling.js";
+import { commandText, heading, statusLabel } from "./ui.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -77,42 +78,47 @@ export const runSetup = async (argv: readonly string[]): Promise<void> => {
   const claudeOnly = flags.has("--claude");
   const codexOnly = flags.has("--codex");
 
-  console.log("\nTLA PreCheck Setup\n");
+  console.log(`\n${heading("TLA PreCheck Setup")}\n`);
 
   // 1. Check environment
-  console.log("Environment:");
+  console.log(heading("Environment"));
   const java = detectJava();
   console.log(
-    `  Java 17+:  ${java.found ? `found (v${java.version}) via ${java.command}` : "NOT FOUND"}`
+    `  ${java.found ? statusLabel("ok") : statusLabel("warn")} Java 17+: ${
+      java.found ? `found (v${java.version}) via ${java.command}` : "not found"
+    }`
   );
 
   let tlcPath = resolveTlcJarPath();
   if (tlcPath !== null) {
-    console.log(`  TLC jar:   ${tlcPath}`);
+    console.log(`  ${statusLabel("ok")} TLC jar: ${tlcPath}`);
   } else {
-    console.log("  TLC jar:   not found");
+    console.log(`  ${statusLabel("warn")} TLC jar: not found`);
     console.log("");
     const shouldDownload = await ask("Download TLC tla2tools.jar? (~15 MB)");
     if (shouldDownload) {
       tlcPath = await downloadTlc();
-      console.log(`  Downloaded to ${tlcPath}`);
+      console.log(`  ${statusLabel("ok")} Downloaded TLC to ${tlcPath}`);
     } else {
-      console.log("  Skipped. Run 'tla-precheck setup' again or set TLA2TOOLS_JAR later.");
+      console.log(`  ${statusLabel("warn")} Skipped TLC download`);
     }
   }
 
   if (!java.found) {
     console.log("");
-    console.log("  Warning: Java 17+ is required for TLC model checking.");
-    console.log("  Install via: brew install temurin (macOS) or apt install openjdk-17-jre (Linux)");
+    console.log(`  ${statusLabel("warn")} Java 17+ is required for check and build.`);
+    console.log("  TLA PreCheck needs any Java 17+ runtime.");
+    console.log(`  macOS quick fix: ${commandText("brew install --cask temurin@21")}`);
+    console.log("  Temurin is the Eclipse Adoptium OpenJDK distribution.");
+    console.log(`  Then rerun: ${commandText("npx tla-precheck doctor")}`);
   }
 
   // 2. Detect and install agent skills
   console.log("");
-  console.log("Agent targets:");
+  console.log(heading("Agent targets"));
 
   if (!existsSync(SKILL_SOURCE)) {
-    console.log("  Error: Skill source not found at " + SKILL_SOURCE);
+    console.log(`  ${statusLabel("fail")} Skill source not found at ${SKILL_SOURCE}`);
     console.log("  This may mean the package was not installed correctly.");
     process.exitCode = 1;
     return;
@@ -130,22 +136,22 @@ export const runSetup = async (argv: readonly string[]): Promise<void> => {
 
   if (detected.length === 0 && notDetected.length > 0) {
     for (const target of notDetected) {
-      console.log(`  ${target.name}: not detected`);
+      console.log(`  ${statusLabel("warn")} ${target.name}: not detected`);
     }
     console.log("");
     const shouldCreate = await ask("No agent directories detected. Create them and install?");
     if (shouldCreate) {
       for (const target of notDetected) {
         await installSkill(target.skillDir);
-        console.log(`  Installed: ${target.skillDir}/SKILL.md`);
+        console.log(`  ${statusLabel("ok")} Installed: ${target.skillDir}/SKILL.md`);
       }
     }
   } else {
     for (const target of detected) {
-      console.log(`  ${target.name}: detected`);
+      console.log(`  ${statusLabel("ok")} ${target.name}: detected`);
     }
     for (const target of notDetected) {
-      console.log(`  ${target.name}: not detected`);
+      console.log(`  ${statusLabel("warn")} ${target.name}: not detected`);
     }
 
     console.log("");
@@ -154,7 +160,7 @@ export const runSetup = async (argv: readonly string[]): Promise<void> => {
     if (shouldInstall) {
       for (const target of detected) {
         await installSkill(target.skillDir);
-        console.log(`  Installed: ${target.skillDir}/SKILL.md`);
+        console.log(`  ${statusLabel("ok")} Installed: ${target.skillDir}/SKILL.md`);
       }
     }
 
@@ -163,7 +169,7 @@ export const runSetup = async (argv: readonly string[]): Promise<void> => {
         const shouldCreate = await ask(`${target.name} not detected. Install anyway?`, false);
         if (shouldCreate) {
           await installSkill(target.skillDir);
-          console.log(`  Installed: ${target.skillDir}/SKILL.md`);
+          console.log(`  ${statusLabel("ok")} Installed: ${target.skillDir}/SKILL.md`);
         }
       }
     }
@@ -171,13 +177,18 @@ export const runSetup = async (argv: readonly string[]): Promise<void> => {
 
   // 3. Summary
   console.log("");
-  console.log("Setup complete.");
+  console.log(heading("Setup complete"));
   if (tlcPath !== null) {
-    console.log(`  TLC jar: ${tlcPath}`);
+    console.log(`  ${statusLabel("ok")} TLC jar: ${tlcPath}`);
     if (tlcPath === TLA_CACHE_PATH && process.env.TLA2TOOLS_JAR === undefined) {
-      console.log("  Commands will use the cached TLC jar automatically.");
+      console.log(`  ${statusLabel("ok")} Commands will use the cached TLC jar automatically.`);
     }
   }
-  console.log("  Run 'tla-precheck doctor' to verify your environment.");
+  console.log("");
+  console.log(`  ${statusLabel("step")} Verify the machine setup: ${commandText("npx tla-precheck doctor")}`);
+  console.log(`  ${statusLabel("step")} In Claude Code or Codex, invoke the installed skill: ${commandText("/tla-precheck")}`);
+  console.log(`  ${statusLabel("step")} Or manually, in your codebase, start a machine: ${commandText("npx tla-precheck init")}`);
+  console.log("  When prompted, enter any machine name or path. Example: billing");
+  console.log(`  ${statusLabel("step")} Then verify the design: ${commandText("npx tla-precheck check billing")}`);
   console.log("");
 };

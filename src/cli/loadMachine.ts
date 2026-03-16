@@ -18,6 +18,28 @@ const createDiagnosticHost = (): ts.FormatDiagnosticsHost => ({
 const formatDiagnostics = (diagnostics: readonly ts.Diagnostic[]): string =>
   ts.formatDiagnosticsWithColorAndContext(diagnostics, createDiagnosticHost()).trim();
 
+export const resolveMachineModulePath = (modulePath: string): string => {
+  const absoluteModulePath = resolve(modulePath);
+  if (existsSync(absoluteModulePath)) {
+    return absoluteModulePath;
+  }
+
+  const candidates = [
+    `${absoluteModulePath}.machine.ts`,
+    `${absoluteModulePath}.machine.js`,
+    `${absoluteModulePath}.ts`,
+    `${absoluteModulePath}.js`
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return absoluteModulePath;
+};
+
 const compileSourceModule = async (
   modulePath: string,
   tsconfigPath: string
@@ -81,7 +103,7 @@ export const loadMachine = async (
   modulePath: string,
   tsconfigPath: string
 ): Promise<MachineDef> => {
-  const absoluteModulePath = resolve(modulePath);
+  const absoluteModulePath = resolveMachineModulePath(modulePath);
   const emittedPath = absoluteModulePath.endsWith(".ts")
     ? await compileSourceModule(absoluteModulePath, tsconfigPath)
     : absoluteModulePath;

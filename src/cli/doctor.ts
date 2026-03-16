@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import { detectJava, resolveTlcJarPath } from "../core/tooling.js";
+import { heading, statusLabel } from "./ui.js";
 
 interface DoctorCheck {
   name: string;
@@ -50,14 +51,8 @@ const checkAgentSkill = (name: string, baseDir: string, skillDir: string): Docto
   return { name: `${name} skill`, status: "warn", detail: "agent dir not detected" };
 };
 
-const STATUS_ICONS: Record<string, string> = {
-  ok: "  [ok]  ",
-  warn: "  [!!]  ",
-  fail: "  [FAIL]"
-};
-
 export const runDoctor = async (): Promise<void> => {
-  console.log("\nTLA PreCheck Doctor\n");
+  console.log(`\n${heading("TLA PreCheck Doctor")}\n`);
 
   const home = homedir();
   const checks: DoctorCheck[] = [
@@ -76,7 +71,7 @@ export const runDoctor = async (): Promise<void> => {
   ];
 
   for (const check of checks) {
-    console.log(`${STATUS_ICONS[check.status]}  ${check.name}: ${check.detail}`);
+    console.log(`  ${statusLabel(check.status)} ${check.name}: ${check.detail}`);
   }
 
   const failures = checks.filter((check) => check.status === "fail");
@@ -84,12 +79,16 @@ export const runDoctor = async (): Promise<void> => {
 
   console.log("");
   if (failures.length > 0) {
-    console.log(`${failures.length} issue(s) need attention. Run 'tla-precheck setup' to fix.`);
+    console.log(
+      `${statusLabel("fail")} ${failures.length} issue(s) need attention. Run 'tla-precheck setup' to fix them.`
+    );
     process.exitCode = 1;
   } else if (warnings.length > 0) {
-    console.log(`All critical checks pass. ${warnings.length} warning(s).`);
+    console.log(
+      `${statusLabel("warn")} All critical checks pass. ${warnings.length} warning(s) still need attention.`
+    );
   } else {
-    console.log("All checks pass. Ready to go.");
+    console.log(`${statusLabel("ok")} All checks pass. Ready to go.`);
   }
   console.log("");
 };
