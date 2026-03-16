@@ -4,6 +4,7 @@ import { basename, resolve } from "node:path";
 
 import type { ResolvedMachineDef } from "../core/dsl.js";
 import { assertSafeForGraphEquivalence } from "../core/proof.js";
+import { resolveJavaCommand, resolveTlcJarPath } from "../core/tooling.js";
 import { exploreGraph } from "../core/interpreter.js";
 import { buildVerificationCertificate, compareGraphs, type VerificationCertificate } from "./compare.js";
 import { generateCfg, type GeneratedPaths } from "./generate.js";
@@ -62,7 +63,7 @@ const runTlc = async (
   await mkdir(metadir, { recursive: true });
 
   return new Promise((resolveRun, reject) => {
-    const child = spawn("java", ["-Xmx4G", "-jar", ...args], { cwd });
+    const child = spawn(resolveJavaCommand(), [`-Xmx${TLC_MAX_HEAP}`, "-jar", ...args], { cwd });
     const chunks: Buffer[] = [];
     const state = {
       capturedBytes: 0,
@@ -142,9 +143,11 @@ export const verifyGeneratedMachineArtifacts = async (
   machine: ResolvedMachineDef,
   generated: GeneratedPaths
 ): Promise<VerificationCertificate> => {
-  const tlaJar = process.env.TLA2TOOLS_JAR;
-  if (tlaJar === undefined || tlaJar.length === 0) {
-    throw new Error("TLA2TOOLS_JAR must point to tla2tools.jar");
+  const tlaJar = resolveTlcJarPath();
+  if (tlaJar === null) {
+    throw new Error(
+      "Could not find tla2tools.jar. Run 'tla-precheck setup' or set TLA2TOOLS_JAR."
+    );
   }
 
   const moduleFileName = `${machine.moduleName}.tla`;

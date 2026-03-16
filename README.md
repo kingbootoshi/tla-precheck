@@ -155,13 +155,17 @@ When TLA PreCheck passes:
 ## Install
 
 ```bash
-git clone https://github.com/kingbootoshi/tla-precheck.git
-cd tla-precheck
-bun install
+bun add -d tla-precheck
+# or: npm install -D tla-precheck
+
+npx tla-precheck setup
+npx tla-precheck doctor
 ```
 
-Requirements: Bun 1.0+. Java 17+ (for TLC model checking). Set `TLA2TOOLS_JAR` to point
-to [tla2tools.jar](https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar).
+Requirements: Java 17+ for TLC model checking. `setup` downloads a pinned
+`tla2tools.jar` into `~/.tla-precheck/tla2tools.jar`, and `check` / `build` use that
+cached jar automatically. On macOS with Homebrew Java, the CLI prefers
+`/opt/homebrew/opt/openjdk/bin/java`.
 
 ## The Design Loop
 
@@ -174,13 +178,12 @@ be fundamentally broken.
 ```
 1. Identify a critical state flow (billing, subscriptions, agent runs...)
 2. Write the machine in the DSL
-3. Run: bun run estimate (fast budget check, no Java needed)
-4. Run: bun run verify (full TLC proof + equivalence check)
-5. Model checker finds invariant violation? Fix the DESIGN, not the code
-6. Loop until: equivalent: true
-7. Run: agent-build (generates adapter + all artifacts from proven machine)
-8. Import generated adapter functions from `src/machine-adapters` into your codebase
-9. Done. Zero hallucination surface. Proven correct by construction.
+3. Run: `npx tla-precheck check src/machines/agentRuns.machine.ts`
+4. If proof or equivalence fails, fix the DESIGN, not the code
+5. Loop until: `proofPassed: true` and `equivalent: true`
+6. Run: `npx tla-precheck build src/machines/agentRuns.machine.ts`
+7. Import generated adapter functions from `src/machine-adapters` into your codebase
+8. Done. Zero hallucination surface. Proven correct by construction.
 ```
 
 The agent isn't just coding faster. It's designing better. The model checker sees every
@@ -189,39 +192,30 @@ possible future of the system and tells the agent exactly where things break.
 ### CLI commands
 
 ```bash
-# Build and typecheck
+# Scaffold a machine
+npx tla-precheck init src/machines/agent-runs
+
+# Validate + estimate + verify directly from the source .machine.ts file
+npx tla-precheck check src/machines/agent-runs.machine.ts
+
+# Verify and generate the runtime adapter for machines in the adapter subset
+npx tla-precheck build src/machines/agent-runs.machine.ts
+
+# Verify a live Postgres schema against generated constraints
+# verify-db currently requires Bun because it uses Bun.SQL
+bunx tla-precheck verify-db dist/machines/agent-runs.machine.js
+```
+
+For repo contributors, the Bun scripts remain available:
+
+```bash
 bun run build
 bun run typecheck
-
-# Fast state space estimation (no Java needed, catches budget blowups in seconds)
-bun run estimate
-
-# Generate TLA+ artifacts for inspection
-bun run generate
-
-# Generate Postgres storage constraints
-bun run generate:db
-
-# Lint for raw writes to machine-owned tables
 bun run lint
-
-# Run unit and semantic tests
 bun run test
-
-# Run differential fuzz tests (randomized compiler testing)
-bun run test:fuzz
-
-# Full TLC verification + equivalence proof (requires Java + TLA2TOOLS_JAR)
 bun run verify
-
-# Verify all machines across all tiers
 bun run verify:all:full
-
-# Verify live Postgres schema matches generated constraints
 bun run verify:db
-
-# Agent build: verify + generate adapter in one step
-bun dist/cli/machine.js agent-build <compiled-machine.js>
 ```
 
 ### Design principles

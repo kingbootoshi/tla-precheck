@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import type { MachineDef, ResolvedMachineDef } from "../core/dsl.js";
 import {
@@ -22,6 +22,10 @@ import type { VerificationCertificate } from "../tla/compare.js";
 import { writeGeneratedMachine } from "../tla/generate.js";
 import { verifyGeneratedMachineArtifacts } from "../tla/verify.js";
 import { discoverMachineModules } from "./discoverMachines.js";
+import { runDoctor } from "./doctor.js";
+import { runInit } from "./init.js";
+import { loadMachine } from "./loadMachine.js";
+import { runSetup } from "./setup.js";
 
 interface ParsedArgs {
   command:
@@ -34,7 +38,9 @@ interface ParsedArgs {
     | "verify-db"
     | "verify-all"
     | "verify-db-all"
-    | "agent-build";
+    | "agent-build"
+    | "check"
+    | "build";
   modulePath: string;
   tier?: string;
   allTiers: boolean;
@@ -62,16 +68,6 @@ interface AgentBuildOutput {
   errors: readonly string[];
 }
 
-const loadMachine = async (modulePath: string): Promise<MachineDef> => {
-  const absolute = resolve(modulePath);
-  const loaded = (await import(pathToFileURL(absolute).href)) as Record<string, unknown>;
-  const machine = (loaded.default ?? loaded.machine ?? Object.values(loaded)[0]) as MachineDef | undefined;
-  if (machine === undefined) {
-    throw new Error(`Could not find a machine export in ${absolute}`);
-  }
-  return machine;
-};
-
 const parseArgs = (argv: readonly string[]): ParsedArgs => {
   const command = argv[2];
   const modulePath = argv[3];
@@ -86,10 +82,12 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
     command !== "verify-db" &&
     command !== "verify-all" &&
     command !== "verify-db-all" &&
-    command !== "agent-build"
+    command !== "agent-build" &&
+    command !== "check" &&
+    command !== "build"
   ) {
     throw new Error(
-      "Usage: machine <estimate|generate|generate-db|lint|lint-all|verify|verify-db|verify-all|verify-db-all|agent-build> <machine-module|root-path> [--tier <name>] [--all-tiers] [--output-root <path>] [--tsconfig <path>]"
+      "Usage: tla-precheck <setup|doctor|init|check|build|estimate|generate|verify|...> [args]"
     );
   }
 
@@ -217,6 +215,15 @@ const verifyDbMachine = async (
   };
 };
 
+const assertBunDbRuntime = (commandName: "verify-db" | "verify-db-all"): void => {
+  if (process.versions.bun !== undefined) {
+    return;
+  }
+  throw new Error(
+    `[bun-required-for-${commandName}] ${commandName} uses Bun.SQL. Run it with 'bunx tla-precheck ${commandName} ...' or 'bun dist/cli/machine.js ${commandName} ...'.`
+  );
+};
+
 const setVerifyExitCode = (certificate: VerificationCertificate): void => {
   if (!certificate.proofPassed) {
     process.exitCode = 1;
@@ -280,7 +287,7 @@ const runLintAll = async (rootPath: string, tsconfigPath: string): Promise<void>
   }> = [];
 
   for (const modulePath of modulePaths) {
-    const machine = await loadMachine(modulePath);
+    const machine = await loadMachine(modulePath, tsconfigPath);
     assertValidMachine(machine);
     const violations = lintNoRawMachineWrites(tsconfigPath, machine);
     results.push({
@@ -307,6 +314,7 @@ const runVerify = async (
 };
 
 const runVerifyDb = async (machine: MachineDef, outputRoot: string): Promise<void> => {
+  assertBunDbRuntime("verify-db");
   const result = await verifyDbMachine(machine, outputRoot);
   console.log(JSON.stringify(result, null, 2));
   if (!result.certificate.verified) {
@@ -318,7 +326,8 @@ const runVerifyAll = async (
   rootPath: string,
   tier: string | undefined,
   allTiers: boolean,
-  outputRoot: string
+  outputRoot: string,
+  tsconfigPath: string
 ): Promise<void> => {
   const modulePaths = await discoverMachineModules(rootPath);
   const results: Array<{
@@ -332,7 +341,7 @@ const runVerifyAll = async (
   }> = [];
 
   for (const modulePath of modulePaths) {
-    const machine = await loadMachine(modulePath);
+    const machine = await loadMachine(modulePath, tsconfigPath);
     assertValidMachine(machine);
     for (const tierName of resolveTierNames(machine, tier, allTiers)) {
       const result = await verifyMachine(machine, tierName, outputRoot);
@@ -352,7 +361,12 @@ const runVerifyAll = async (
   console.log(JSON.stringify({ results }, null, 2));
 };
 
-const runVerifyDbAll = async (rootPath: string, outputRoot: string): Promise<void> => {
+const runVerifyDbAll = async (
+  rootPath: string,
+  outputRoot: string,
+  tsconfigPath: string
+): Promise<void> => {
+  assertBunDbRuntime("verify-db-all");
   const modulePaths = await discoverMachineModules(rootPath);
   const results: Array<{
     modulePath: string;
@@ -363,7 +377,7 @@ const runVerifyDbAll = async (rootPath: string, outputRoot: string): Promise<voi
   }> = [];
 
   for (const modulePath of modulePaths) {
-    const machine = await loadMachine(modulePath);
+    const machine = await loadMachine(modulePath, tsconfigPath);
     assertValidMachine(machine);
     if ((machine.metadata?.storageConstraints?.length ?? 0) === 0) {
       results.push({
@@ -390,17 +404,38 @@ const runVerifyDbAll = async (rootPath: string, outputRoot: string): Promise<voi
   console.log(JSON.stringify({ results }, null, 2));
 };
 
+const runCheck = async (
+  machine: MachineDef,
+  tier: string | undefined,
+  outputRoot: string
+): Promise<void> => {
+  assertValidMachine(machine);
+
+  const estimate = estimateMachine(machine, tier);
+  console.log(formatEstimate(estimate));
+  if (!estimate.withinBudget) {
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log("\nEstimate passed. Running TLC verification...\n");
+  const result = await verifyMachine(machine, tier, outputRoot);
+  console.log(JSON.stringify(result, null, 2));
+  setVerifyExitCode(result.certificate);
+};
+
 const runAgentBuild = async (
   modulePath: string,
   tier: string | undefined,
-  outputRoot: string
+  outputRoot: string,
+  tsconfigPath: string
 ): Promise<void> => {
   let certificate: VerificationCertificate | null = null;
   let adapterPath: string | null = null;
   const errors: string[] = [];
 
   try {
-    const machine = await loadMachine(modulePath);
+    const machine = await loadMachine(modulePath, tsconfigPath);
     assertValidMachine(machine);
     const resolvedMachine = resolveMachine(machine, tier);
 
@@ -471,7 +506,52 @@ const runAgentBuild = async (
   );
 };
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
+  const command = process.argv[2];
+
+  if (command === "setup") {
+    await runSetup(process.argv.slice(3));
+    return;
+  }
+  if (command === "doctor") {
+    await runDoctor();
+    return;
+  }
+  if (command === "init") {
+    await runInit(process.argv[3]);
+    return;
+  }
+  if (command === undefined || command === "help" || command === "--help" || command === "-h") {
+    console.log(`
+TLA PreCheck - Mathematically verified state machines
+
+  setup                      Install agent skills and TLC
+  doctor                     Check environment
+  init <name>                Scaffold a new machine
+  check <machine>            Validate + estimate + verify (.machine.ts or .machine.js)
+  build <machine>            Check + generate adapter for adapter-capable machines
+
+Advanced:
+  estimate <machine>         Fast budget check (no Java needed)
+  generate <machine>         Generate TLA+ artifacts
+  generate-db <machine>      Generate Postgres storage constraints
+  verify <machine>           Full TLC verification
+  verify-all <root>          Verify all machines in directory
+  verify-db <machine>        Verify live Postgres schema (Bun only)
+  verify-db-all <root>       Verify all DB constraints (Bun only)
+  lint <machine>             Lint for raw writes
+  lint-all <root>            Lint all machines
+  agent-build <machine>      Alias for build
+
+Flags:
+  --tier <name>              Proof tier (default: machine's defaultTier)
+  --all-tiers                Run across all declared tiers
+  --output-root <path>       Output directory (default: .generated-machines)
+  --tsconfig <path>          tsconfig.json path for lint
+`);
+    return;
+  }
+
   const args = parseArgs(process.argv);
 
   if (args.command === "lint-all") {
@@ -479,19 +559,19 @@ async function main(): Promise<void> {
     return;
   }
   if (args.command === "verify-all") {
-    await runVerifyAll(args.modulePath, args.tier, args.allTiers, args.outputRoot);
+    await runVerifyAll(args.modulePath, args.tier, args.allTiers, args.outputRoot, args.tsconfigPath);
     return;
   }
   if (args.command === "verify-db-all") {
-    await runVerifyDbAll(args.modulePath, args.outputRoot);
+    await runVerifyDbAll(args.modulePath, args.outputRoot, args.tsconfigPath);
     return;
   }
-  if (args.command === "agent-build") {
-    await runAgentBuild(args.modulePath, args.tier, args.outputRoot);
+  if (args.command === "agent-build" || args.command === "build") {
+    await runAgentBuild(args.modulePath, args.tier, args.outputRoot, args.tsconfigPath);
     return;
   }
 
-  const machine = await loadMachine(args.modulePath);
+  const machine = await loadMachine(args.modulePath, args.tsconfigPath);
   assertValidMachine(machine);
 
   if (args.command === "estimate") {
@@ -514,10 +594,19 @@ async function main(): Promise<void> {
     await runVerifyDb(machine, args.outputRoot);
     return;
   }
+  if (args.command === "check") {
+    await runCheck(machine, args.tier, args.outputRoot);
+    return;
+  }
 
   await runVerify(machine, args.tier, args.outputRoot);
 }
 
+const reportCliError = (error: unknown): void => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+};
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  await main();
+  await main().catch(reportCliError);
 }

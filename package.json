@@ -1,10 +1,50 @@
 {
-  "name": "tla-machine-kit",
-  "version": "0.1.0",
-  "private": true,
+  "name": "tla-precheck",
+  "version": "0.1.1",
+  "description": "Write state machines once in TypeScript. The compiler mathematically proves correctness via TLA+, then generates runtime code and Postgres constraints from the same source.",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kingbootoshi/tla-precheck.git"
+  },
+  "keywords": [
+    "tla+",
+    "state-machine",
+    "formal-verification",
+    "model-checking",
+    "typescript",
+    "code-generation",
+    "agentic",
+    "postgres"
+  ],
+  "bin": {
+    "tla-precheck": "./bin/tla-precheck.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/core/dsl.js",
+      "types": "./dist/core/dsl.d.ts"
+    },
+    "./interpreter": {
+      "import": "./dist/core/interpreter.js",
+      "types": "./dist/core/interpreter.d.ts"
+    }
+  },
+  "files": [
+    "dist/cli/",
+    "dist/core/",
+    "dist/db/",
+    "dist/tla/",
+    "dist/lint/",
+    "bin/",
+    "skills/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "bun ./node_modules/typescript/lib/tsc.js -p tsconfig.json",
+    "build": "bun ./node_modules/typescript/lib/tsc.js -p tsconfig.build.json",
+    "build:dev": "bun ./node_modules/typescript/lib/tsc.js -p tsconfig.json",
     "typecheck": "bun ./node_modules/typescript/lib/tsc.js --noEmit",
     "ci:local": "bash ./scripts/ci.sh pr",
     "ci:pr": "bash ./scripts/ci.sh pr",
@@ -26,17 +66,10 @@
     "verify:db:all": "bun dist/cli/machine.js verify-db-all dist",
     "agent-build": "bun dist/cli/machine.js agent-build dist/examples/agentRuns.machine.js"
   },
-  "devDependencies": {
-    "@types/node": "^22.13.10",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
+  "dependencies": {
     "typescript": "^5.9.3"
   },
-  "dependencies": {
-    "@remotion/cli": "^4.0.435",
-    "@remotion/google-fonts": "^4.0.435",
-    "@remotion/media": "^4.0.435",
-    "@remotion/transitions": "^4.0.435",
-    "remotion": "^4.0.435"
+  "devDependencies": {
+    "@types/node": "^22.13.10"
   }
 }
