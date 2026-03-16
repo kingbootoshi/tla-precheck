@@ -1,6 +1,6 @@
 {
   "name": "tla-precheck",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Write state machines once in TypeScript. The compiler mathematically proves correctness via TLA+, then generates runtime code and Postgres constraints from the same source.",
   "type": "module",
   "license": "MIT",
@@ -33,6 +33,10 @@
     "./interpreter": {
       "import": "./dist/core/interpreter.js",
       "types": "./dist/core/interpreter.d.ts"
+    },
+    "./proof": {
+      "import": "./dist/core/proof.js",
+      "types": "./dist/core/proof.d.ts"
     }
   },
   "files": [
