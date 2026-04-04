@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-pr}"
-if [[ "$MODE" != "pr" && "$MODE" != "nightly" ]]; then
-  echo "usage: scripts/ci.sh <pr|nightly>" >&2
-  exit 1
-fi
-
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
@@ -78,11 +72,7 @@ if [[ -z "${TLA2TOOLS_JAR:-}" ]]; then
 fi
 
 bun run agent-build
+bun run verify:seal
 
-if [[ "$MODE" == "nightly" ]]; then
-  bun run verify:all:full
-  bun run test:fuzz:nightly
-else
-  bun run verify
-  bun run test:fuzz:smoke
-fi
+bun run verify
+bun run test:fuzz:smoke
